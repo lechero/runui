@@ -35,7 +35,7 @@ Usage:
   runui list [-C DIR]   print the folder's favorites, its project's commands
                         and its runs; changes nothing
   runui ps              print every run, everywhere, the ones going first
-  runui status [clear]  print counts for tmux; clear finished counts
+  runui status [clear|tmux]  print counts, clear finished counts, or format for tmux
   runui mcp [-C DIR]    serve project commands and runs to an MCP client over stdio
 
 Flags:
@@ -104,7 +104,8 @@ fn dispatch(
     }
     let (dir, rest) = parse_flags(args)?;
     let clear_status = cmd == "status" && rest.as_slice() == ["clear"];
-    if let Some(extra) = rest.first().filter(|_| !clear_status) {
+    let tmux_status = cmd == "status" && rest.as_slice() == ["tmux"];
+    if let Some(extra) = rest.first().filter(|_| !clear_status && !tmux_status) {
         return Err(Failure::Usage(format!("unexpected {}", quote(extra))));
     }
     let dir = match dir {
@@ -119,7 +120,7 @@ fn dispatch(
         "" => open(canceled, &w, stderr)?,
         "list" => list(&w, stdout)?,
         "ps" => ps(&w, stdout)?,
-        "status" => status(&w, clear_status, stdout)?,
+        "status" => status(&w, clear_status, tmux_status, stdout)?,
         "mcp" => mcp::serve(&w, std::io::stdin().lock(), stdout)?,
         "help" => return Err(Failure::Help),
         _ => return Err(Failure::Usage(format!("unknown command {}", quote(cmd)))),
@@ -319,7 +320,7 @@ fn ps(w: &Workspace, out: &mut dyn Write) -> Result<()> {
 
 /// status prints counts for status bars. Completed and errored runs count
 /// until viewed or cleared. Stopped runs are left out.
-fn status(w: &Workspace, clear: bool, out: &mut dyn Write) -> Result<()> {
+fn status(w: &Workspace, clear: bool, tmux: bool, out: &mut dyn Write) -> Result<()> {
     let mut running = 0;
     let mut completed = 0;
     let mut errored = 0;
@@ -336,7 +337,23 @@ fn status(w: &Workspace, clear: bool, out: &mut dyn Write) -> Result<()> {
             State::Exited | State::Lost => {}
         }
     }
-    writeln!(out, "running={running} completed={completed} errored={errored}")?;
+    if tmux {
+        if running > 0 {
+            write!(out, " #[fg=#89b4fa]▶ {running}")?;
+        }
+        if completed > 0 {
+            write!(out, " #[fg=#a6e3a1]✓ {completed}")?;
+        }
+        if errored > 0 {
+            write!(out, " #[fg=#f38ba8]✗ {errored}")?;
+        }
+        if running + completed + errored > 0 {
+            write!(out, "#[default]")?;
+        }
+        writeln!(out)?;
+    } else {
+        writeln!(out, "running={running} completed={completed} errored={errored}")?;
+    }
     Ok(())
 }
 

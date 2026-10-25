@@ -2,7 +2,11 @@
 
 <img src="docs/assets/runui-logo.svg" alt="runui logo: terminal prompt and cursor" width="292">
 
-**Your project's commands, ready to run.** Taskfile tasks, package scripts, Make targets, Compose services, and Maven builds are scattered across files. Runui gathers them in one terminal screen. Pick a command, watch its output, then close the interface whenever you like. The command keeps running, and its output is waiting when you return.
+**Every command your project can run. One place to run it.** Runui finds Taskfile tasks, package scripts, Make targets, Compose services, and Maven builds, including those in nested folders. Pick a command, watch its output, and leave whenever you like. Its supervisor keeps the run alive and its output ready for your return.
+
+| Discover | Run | Return |
+| --- | --- | --- |
+| Browse your project's commands without memorizing which file owns them. | Follow live output in the pane while each command runs in its own folder. | Reopen Runui to read, stop, or restart a run—even after closing the terminal. |
 
 ![runui tour: favorite, run, inspect, filter, stop](docs/assets/tour.gif)
 
@@ -39,6 +43,7 @@ runui -C ~/projects/app  # open another project
 runui list              # print its favorites, commands, and runs
 runui ps                # print runs from all folders, live ones first
 runui status            # print counts for a terminal status line
+runui status tmux       # print a colored tmux segment, hiding zero counts
 runui status clear      # dismiss finished counts, keeping runs and output
 runui mcp -C ~/projects/app  # serve tools to an MCP client over stdio
 ```
@@ -106,7 +111,20 @@ Runui keeps up to forty ended runs across folders. Their output remains availabl
 running=2 completed=1 errored=0
 ```
 
-Starting and active commands count as running. A command that exits with code 0 counts as completed; a nonzero exit, failed start, or lost supervisor counts as errored. Runs deliberately stopped with `s` are omitted. The counts cover all folders. Finished results stay counted until you focus their output pane in Runui (enter on a run, `0`, or click the pane), or run `runui status clear` to dismiss all finished counts. A run already in the focused pane is dismissed when it finishes. Dismissing a count keeps the run and its output; running counts always reflect active commands. The output is designed for tmux and other status bars, which can omit zero values.
+Starting and active commands count as running. A command that exits with code 0 counts as completed; a nonzero exit, failed start, or lost supervisor counts as errored. Deliberately stopped runs are omitted. Counts cover every folder.
+
+For tmux, append Runui's formatted segment to your existing right side and poll every five seconds:
+
+```tmux
+set -g status-interval 5
+set -ag status-right '#(runui status tmux)'
+```
+
+`runui status tmux` shows `▶` running in blue, `✓` completed in green, and `✗` errored in red. It hides each zero count, and prints an empty segment when all three are zero. The plain `runui status` output remains available to other status bars and scripts.
+
+If `runui status` shows counts but tmux shows nothing, use the absolute path from `command -v runui` inside `#(...)` and reload your tmux configuration. The tmux server may have a different `PATH` from a new shell.
+
+Finished results stay counted until you **focus their output** in Runui—press `enter` on a run, press `0`, or click the output pane. Merely selecting a row previews it and leaves the count in place. If you are already focused on a run when it finishes, its result is dismissed then. Run `runui status clear` to dismiss all finished counts at once. Neither action deletes run history or output, and active runs remain counted.
 
 ## Use with an agent
 
