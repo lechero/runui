@@ -146,6 +146,7 @@
           <div><code>runui [-C DIR]</code><p>Open the interface in the current project or a specified folder. <code>runui -h</code> prints its built-in help.</p></div>
           <div><code>runui list [-C DIR]</code><p>Print this folder's favorites, discovered commands, and runs. This only reads data.</p></div>
           <div><code>runui ps</code><p>Print every run from every folder, with live runs first.</p></div>
+          <div><code>runui status</code><p>Print <code>running=N completed=N errored=N</code> for status bars. Counts cover every folder; stopped runs are omitted.</p></div>
           <div><code>runui mcp [-C DIR]</code><p>Serve local MCP tools for discovering commands and managing persistent runs over stdio.</p></div>
         </div>
         <p>Use <code>task run -- -C DIR</code> while working in this repository to build and launch the local binary with arguments.</p>

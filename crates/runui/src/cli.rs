@@ -1,4 +1,4 @@
-//! The command line: runui, runui list, runui ps, and the hidden
+//! The command line: runui, runui list, runui ps, runui status, and the hidden
 //! _supervise a run's supervisor is started with. Ported from cli.go.
 
 use std::io::Write;
@@ -35,6 +35,7 @@ Usage:
   runui list [-C DIR]   print the folder's favorites, its project's commands
                         and its runs; changes nothing
   runui ps              print every run, everywhere, the ones going first
+  runui status          print running, completed and errored counts for tmux
   runui mcp [-C DIR]    serve project commands and runs to an MCP client over stdio
 
 Flags:
@@ -117,6 +118,7 @@ fn dispatch(
         "" => open(canceled, &w, stderr)?,
         "list" => list(&w, stdout)?,
         "ps" => ps(&w, stdout)?,
+        "status" => status(&w, stdout)?,
         "mcp" => mcp::serve(&w, std::io::stdin().lock(), stdout)?,
         "help" => return Err(Failure::Help),
         _ => return Err(Failure::Usage(format!("unknown command {}", quote(cmd)))),
@@ -311,6 +313,24 @@ fn ps(w: &Workspace, out: &mut dyn Write) -> Result<()> {
             )?;
         }
     }
+    Ok(())
+}
+
+/// status prints counts for status bars. Stopped runs are left out because
+/// stopping a command is neither a successful nor a failed completion.
+fn status(w: &Workspace, out: &mut dyn Write) -> Result<()> {
+    let mut running = 0;
+    let mut completed = 0;
+    let mut errored = 0;
+    for r in w.runs()?.list()? {
+        match r.state() {
+            State::Starting | State::Running => running += 1,
+            State::Exited if r.exit == Some(0) => completed += 1,
+            State::Exited | State::Lost => errored += 1,
+            State::Stopped => {}
+        }
+    }
+    writeln!(out, "running={running} completed={completed} errored={errored}")?;
     Ok(())
 }
 
