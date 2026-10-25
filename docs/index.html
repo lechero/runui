@@ -38,6 +38,7 @@
         <a href="#runs">Runs &amp; output</a>
         <a href="#keyboard">Keyboard reference</a>
         <a href="#cli">CLI reference</a>
+        <a href="#mcp">Agent tools (MCP)</a>
         <a href="#files">Files &amp; compatibility</a>
       </nav>
       <div class="sidebar-note"><span class="status-dot"></span> Rust port of the Go runui<br><small>Same keys. Same data. Same runs.</small></div>
@@ -145,12 +146,36 @@
           <div><code>runui [-C DIR]</code><p>Open the interface in the current project or a specified folder. <code>runui -h</code> prints its built-in help.</p></div>
           <div><code>runui list [-C DIR]</code><p>Print this folder's favorites, discovered commands, and runs. This only reads data.</p></div>
           <div><code>runui ps</code><p>Print every run from every folder, with live runs first.</p></div>
+          <div><code>runui mcp [-C DIR]</code><p>Serve local MCP tools for discovering commands and managing persistent runs over stdio.</p></div>
         </div>
         <p>Use <code>task run -- -C DIR</code> while working in this repository to build and launch the local binary with arguments.</p>
       </section>
 
+      <section class="content-section" id="mcp" aria-labelledby="mcp-title">
+        <div class="section-head"><span class="section-number">08</span><div><p class="section-kicker">FOR AGENTS</p><h2 id="mcp-title">Runui as an MCP server</h2></div></div>
+        <p>Start <code>runui mcp -C /absolute/path/to/project</code> from a local MCP client. The client launches runui as a subprocess and exchanges newline-delimited JSON messages over stdin and stdout. There is no network listener. Use the installed binary's absolute path in your client's configuration.</p>
+        <div class="terminal-example"><div class="terminal-label"><span class="status-dot"></span> Example client configuration</div><pre><code>{
+  "mcpServers": {
+    "runui": {
+      "command": "/home/you/.local/bin/runui",
+      "args": ["mcp", "-C", "/home/you/projects/app"]
+    }
+  }
+}</code></pre></div>
+        <p class="fine-print">MCP clients use different configuration file names and shapes; use these command and argument values in your client's MCP server settings. On macOS, the installed binary is commonly under <code>/Users/you/.local/bin/runui</code>.</p>
+        <div class="table-wrap"><table><thead><tr><th>Tool</th><th>What it does</th></tr></thead><tbody>
+          <tr><td><code>list_commands</code></td><td>Return discovered project commands and saved favorites with their exact shell command and working directory.</td></tr>
+          <tr><td><code>start_run</code></td><td>Start a shell command under a persistent supervisor. Accepts <code>command</code>, optional <code>directory</code>, and optional <code>name</code>; returns the run ID.</td></tr>
+          <tr><td><code>list_runs</code></td><td>List runs across all folders, with an optional exact working directory filter.</td></tr>
+          <tr><td><code>get_run</code></td><td>Read a run's current state, timestamps, exit code, and other metadata by ID.</td></tr>
+          <tr><td><code>read_output</code></td><td>Read recent plain-text output by ID. Returns at most 500 lines and 64 KiB; poll to follow a live run.</td></tr>
+          <tr><td><code>stop_run</code></td><td>Ask the supervisor to stop the run's process group, then use <code>get_run</code> to see its final state.</td></tr>
+        </tbody></table></div>
+        <p>Agent runs and TUI runs use the same run files and supervisor. Stopping one from either interface affects the same process. <code>start_run</code> executes the supplied command through the shell in the supplied directory, so review agent tool calls as you would commands typed into a terminal.</p>
+      </section>
+
       <section class="content-section" id="files" aria-labelledby="files-title">
-        <div class="section-head"><span class="section-number">08</span><div><p class="section-kicker">UNDER THE HOOD</p><h2 id="files-title">Files and compatibility</h2></div></div>
+        <div class="section-head"><span class="section-number">09</span><div><p class="section-kicker">UNDER THE HOOD</p><h2 id="files-title">Files and compatibility</h2></div></div>
         <p>Favorites and runs use the same paths and file formats as the original Go app. The Go build can find, follow, and stop a Rust run, and the Rust build can do the same for a Go run.</p>
         <div class="file-list"><div><span>Favorites</span><code>~/.config/runui/favorites.json</code><small>or under <code>$XDG_CONFIG_HOME</code></small></div><div><span>Runs, metadata &amp; output</span><code>~/.local/state/runui/runs/</code><small>or under <code>$XDG_STATE_HOME</code></small></div></div>
         <p>A run's folder holds <code>run.json</code>, <code>output.log</code>, and a lock held by its supervisor. The lock tells the next runui whether the run is still alive, even after the first interface exits.</p>

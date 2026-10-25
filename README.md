@@ -33,6 +33,7 @@ runui                   # open the interface for the current project
 runui -C ~/projects/app  # open another project
 runui list              # print its favorites, commands, and runs
 runui ps                # print runs from all folders, live ones first
+runui mcp -C ~/projects/app  # serve tools to an MCP client over stdio
 ```
 
 Opening from `src/` or another subfolder selects the nearest parent with a supported project file, up to the repository root. The Project panel also finds files in folders below it, three levels deep, so commands from `apps/web` or a Maven module appear with their folder and run there.
@@ -89,6 +90,12 @@ Each command runs in its own folder through `sh -c` (and through `mise exec` whe
 | Runs and output | `~/.local/state/runui/runs` | `$XDG_STATE_HOME/runui/runs` |
 
 The Rust and Go builds read and write the same formats. A favorite or run created in either build is visible in the other, including its stored output and stop control. Forty ended runs are kept across folders.
+
+## Use with an agent
+
+Run `runui mcp -C /absolute/path/to/project` as a local MCP stdio server. Point your agent's MCP client at the installed `runui` binary with those arguments. The server offers `list_commands`, `start_run`, `list_runs`, `get_run`, `read_output`, and `stop_run` tools. A run started by an agent appears in the TUI and keeps running after the MCP client disconnects; runs started in the TUI are available through the same tools.
+
+`start_run` accepts a shell command and optional working directory and label. `list_commands` returns the exact command and directory for discovered project commands and favorites. `read_output` returns recent plain text, up to 500 lines and 64 KiB per call; call it again to follow a live run. The [MCP guide](docs/index.html#mcp) has a client configuration example and the full tool reference.
 
 ## Develop
 
