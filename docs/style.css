@@ -92,6 +92,7 @@ kbd { display: inline-block; min-width: 20px; padding: 1px 5px; border-radius: 4
 .fine-print { margin-top: 14px; color: var(--quiet) !important; font-size: 12px !important; }
 
 .code-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; margin: 24px 0; }
+.code-card-primary { grid-column: 1 / -1; }
 .code-card { min-width: 0; padding: 18px 20px 8px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); }
 .code-label, .terminal-label { margin-bottom: 14px; color: var(--accent); font: 700 11px/1.2 var(--font-mono); letter-spacing: .04em; }
 .code-card pre { margin: 0 0 12px; overflow-x: auto; color: #ebf4ff; font-size: 12px; }
