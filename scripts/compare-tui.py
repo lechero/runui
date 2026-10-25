@@ -29,7 +29,10 @@ ENV = f"env HOME={HOME} XDG_CONFIG_HOME={HOME}/config XDG_STATE_HOME={HOME}/stat
 
 
 def tmux(*args):
-    return subprocess.run(["tmux", "-S", SOCK, "-f", "/dev/null", *args], capture_output=True, text=True)
+    result = subprocess.run(["tmux", "-S", SOCK, "-f", "/dev/null", *args], capture_output=True, text=True)
+    if result.returncode and args[0] != "kill-server":
+        raise RuntimeError(f"tmux {' '.join(args)}: {result.stderr.strip()}")
+    return result
 
 
 def start(name, binary, args=""):
@@ -233,10 +236,15 @@ for k in ["?", "x", "]", "]", "[", "2", "j", "j", "/", "t", "Enter", "Escape", "
     same_cells(f"after {k}")
 for k in ["e", "c", "h", "o", " ", "h", "i", "Tab", "g", "r", "e", "e", "t", "Enter"]:
     keys("go", k)
+form_screen = screen("go")
 keys("go", "q")
 time.sleep(0.5)
 tmux("kill-server")
-check("the form adds a command of your own (Go)", '"command": "echo hi"' in open(os.path.join(HOME, "config", "runui", "favorites.json")).read())
+favorites_path = os.path.join(HOME, "config", "runui", "favorites.json")
+if not os.path.exists(favorites_path):
+    check("the form adds a command of your own (Go)", False, form_screen)
+    sys.exit(1)
+check("the form adds a command of your own (Go)", '"command": "echo hi"' in open(favorites_path).read())
 
 # 2. the favorites the Go build kept, as the Rust build shows them
 start("go", GO, f"-C {APP}")
