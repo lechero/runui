@@ -1,6 +1,6 @@
 # runui guide
 
-Open [index.html](index.html) for the app guide, including [MCP agent tools](index.html#mcp), and [brand.html](brand.html) for the logo, icons, colors, and download links. Both pages are static HTML with no build step, JavaScript, external fonts, or network dependency.
+Open [index.html](index.html) for the illustrated app guide, including the [run and output tour](index.html#workflow), [tmux status bars](index.html#status-bars), and [MCP agent tools](index.html#mcp). The [brand kit](brand.html) has the logo, icons, colors, and download links. Both pages are static HTML with no build step, JavaScript, external fonts, or network dependency.
 
 The media show Runui running against a disposable sample project. To regenerate them:
 

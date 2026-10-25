@@ -36,6 +36,7 @@
         <a href="#sources">Project commands</a>
         <a href="#favorites">Favorites &amp; your own</a>
         <a href="#runs">Runs &amp; output</a>
+        <a href="#status-bars">Status bars</a>
         <a href="#keyboard">Keyboard reference</a>
         <a href="#cli">CLI reference</a>
         <a href="#mcp">Agent tools (MCP)</a>
@@ -118,14 +119,37 @@ brew install lechero/runui/runui</code></pre><p>Homebrew builds Runui from sourc
 
       <section class="content-section" id="runs" aria-labelledby="runs-title">
         <div class="section-head"><span class="section-number">05</span><div><p class="section-kicker">PERSISTENT BY DESIGN</p><h2 id="runs-title">Runs and their output</h2></div></div>
-        <p>Every command has its own supervisor and output file. The <strong>Runs</strong> panel shows runs in this project under <strong>Here</strong>, with an <strong>Everywhere</strong> tab for runs from other folders. Once an agent has started a run through <code>runui mcp</code>, an <strong>Agents</strong> tab lists the runs agents started, wherever they are, each with the name its MCP client gave (<code>agentix</code>, <code>claude-code</code>); it goes away when the last of them is forgotten. Selecting a run brings its stored output back into view.</p>
+        <p>Every command has its own supervisor and output file. The <strong>Runs</strong> panel shows runs in this project under <strong>Here</strong>, with an <strong>Everywhere</strong> tab for runs from other folders. Once an agent has started a run through <code>runui mcp</code>, an <strong>Agents</strong> tab lists the runs agents started, wherever they are, each with the name its MCP client gave (<code>agentix</code>, <code>claude-code</code>); it goes away when the last of them is forgotten. Selecting a run previews its stored output; pressing <kbd>enter</kbd> focuses the output and <a href="#status-bars">acknowledges its result</a>.</p>
         <div class="state-grid" aria-label="Run status symbols"><div><b class="good">●</b><span>Running</span></div><div><b class="muted">✓</b><span>Exited 0</span></div><div><b class="bad">✗</b><span>Failed</span></div><div><b class="muted">■</b><span>Stopped</span></div><div><b class="warn">?</b><span>Lost</span></div></div>
         <div class="two-screens"><figure class="screen"><a href="assets/runs.png" aria-label="Open full-size Runs screenshot"><img src="assets/runs.png" width="1610" height="716" alt="The Runs panel selected while the preview command is running" loading="lazy"></a><figcaption>While running: output keeps arriving.</figcaption></figure><figure class="screen"><a href="assets/stopped.png" aria-label="Open full-size stopped run screenshot"><img src="assets/stopped.png" width="1610" height="716" alt="The preview run after stop, with its previous output still available" loading="lazy"></a><figcaption>After <kbd>s</kbd>: the output remains.</figcaption></figure></div>
         <p>Stopping sends SIGTERM to the command's process group, then SIGKILL after five seconds if it is still there. Press <kbd>D</kbd> on an ended run to forget it and its output. runui retains up to 40 ended runs across folders.</p>
       </section>
 
+      <section class="content-section" id="status-bars" aria-labelledby="status-bars-title">
+        <div class="section-head"><span class="section-number">06</span><div><p class="section-kicker">A QUIET SIGNAL</p><h2 id="status-bars-title">Know what needs a look</h2></div></div>
+        <p>Runui counts active, completed, and errored runs across every folder. Put those counts in tmux's status line to see when a command finishes while you work elsewhere.</p>
+        <div class="status-preview" role="img" aria-label="Example tmux status line showing two running commands in blue and one error in red; the zero completed count is hidden">
+          <span class="status-preview-window">1 · project</span>
+          <span class="status-preview-spacer" aria-hidden="true"></span>
+          <span class="status-preview-running" aria-hidden="true">▶ 2</span>
+          <span class="status-preview-errored" aria-hidden="true">✗ 1</span>
+        </div>
+        <p class="fine-print">In this example, completed is zero, so it has no segment. When every count is zero, Runui's segment disappears.</p>
+        <div class="status-steps">
+          <div><span class="status-step-number">01</span><h3>Running</h3><p><span class="status-preview-running">▶</span> A command has started or is still active.</p></div>
+          <div><span class="status-step-number">02</span><h3>Needs attention</h3><p><span class="status-preview-completed">✓</span> Exit 0, or <span class="status-preview-errored">✗</span> a failure or lost run. Deliberately stopped runs stay out.</p></div>
+          <div><span class="status-step-number">03</span><h3>Seen</h3><p>Focus its output with <kbd>enter</kbd>, <kbd>0</kbd>, or a pane click. The finished count clears; its output stays.</p></div>
+        </div>
+        <p>Append the segment to your existing tmux right side. Runui formats the colors and hides zero values:</p>
+        <div class="terminal-example"><div class="terminal-label">~/.tmux.conf</div><pre><code>set -g status-interval 5
+set -ag status-right '#(runui status tmux)'</code></pre></div>
+        <p class="fine-print">If plain <code>runui status</code> shows counts but tmux stays blank, put the absolute path from <code>command -v runui</code> inside <code>#(...)</code> and reload tmux. Its server can have a different <code>PATH</code> from your shell.</p>
+        <div class="status-command-grid"><div><code>runui status</code><p>Print plain counts for scripts and other status bars.</p></div><div><code>runui status clear</code><p>Dismiss every finished result without stopping runs or deleting logs.</p></div></div>
+        <p class="fine-print">Selecting a row previews its output and leaves the result counted. If its output already has focus when the run ends, Runui acknowledges it automatically.</p>
+      </section>
+
       <section class="content-section" id="keyboard" aria-labelledby="keyboard-title">
-        <div class="section-head"><span class="section-number">06</span><div><p class="section-kicker">STAY IN FLOW</p><h2 id="keyboard-title">Keyboard reference</h2></div></div>
+        <div class="section-head"><span class="section-number">07</span><div><p class="section-kicker">STAY IN FLOW</p><h2 id="keyboard-title">Keyboard reference</h2></div></div>
         <p>Press <kbd>?</kbd> inside runui for the complete in-app key sheet. The mouse can select rows and scroll output too.</p>
         <div class="table-wrap"><table><thead><tr><th>Keys</th><th>What they do</th></tr></thead><tbody>
           <tr><td><kbd>tab</kbd> / <kbd>shift+tab</kbd>, <kbd>1</kbd>–<kbd>3</kbd></td><td>Switch between Favorites, Project, and Runs.</td></tr>
@@ -143,19 +167,19 @@ brew install lechero/runui/runui</code></pre><p>Homebrew builds Runui from sourc
       </section>
 
       <section class="content-section" id="cli" aria-labelledby="cli-title">
-        <div class="section-head"><span class="section-number">07</span><div><p class="section-kicker">FROM THE SHELL</p><h2 id="cli-title">CLI reference</h2></div></div>
+        <div class="section-head"><span class="section-number">08</span><div><p class="section-kicker">FROM THE SHELL</p><h2 id="cli-title">CLI reference</h2></div></div>
         <div class="cli-list">
           <div><code>runui [-C DIR]</code><p>Open the interface in the current project or a specified folder. <code>runui -h</code> prints its built-in help.</p></div>
           <div><code>runui list [-C DIR]</code><p>Print this folder's favorites, discovered commands, and runs. This only reads data.</p></div>
           <div><code>runui ps</code><p>Print every run from every folder, with live runs first.</p></div>
-          <div><code>runui status [clear]</code><p>Print <code>running=N completed=N errored=N</code> for status bars. Finished counts remain until you focus a run’s output or use <code>runui status clear</code>. Clearing keeps runs and output; running counts still show active commands. Counts cover every folder; stopped runs are omitted.</p></div>
+          <div><code>runui status [clear|tmux]</code><p>Print plain counts, dismiss finished results, or print a colored tmux segment with zero values hidden. Counts cover every folder; stopped runs are omitted.</p></div>
           <div><code>runui mcp [-C DIR]</code><p>Serve local MCP tools for discovering commands and managing persistent runs over stdio.</p></div>
         </div>
         <p>Use <code>task run -- -C DIR</code> while working in this repository to build and launch the local binary with arguments.</p>
       </section>
 
       <section class="content-section" id="mcp" aria-labelledby="mcp-title">
-        <div class="section-head"><span class="section-number">08</span><div><p class="section-kicker">FOR AGENTS</p><h2 id="mcp-title">Runui as an MCP server</h2></div></div>
+        <div class="section-head"><span class="section-number">09</span><div><p class="section-kicker">FOR AGENTS</p><h2 id="mcp-title">Runui as an MCP server</h2></div></div>
         <p>Start <code>runui mcp -C /absolute/path/to/project</code> from a local MCP client. The client launches runui as a subprocess and exchanges newline-delimited JSON messages over stdin and stdout. There is no network listener. Use the installed binary's absolute path in your client's configuration.</p>
         <div class="terminal-example"><div class="terminal-label"><span class="status-dot"></span> Example client configuration</div><pre><code>{
   "mcpServers": {
@@ -178,7 +202,7 @@ brew install lechero/runui/runui</code></pre><p>Homebrew builds Runui from sourc
       </section>
 
       <section class="content-section" id="files" aria-labelledby="files-title">
-        <div class="section-head"><span class="section-number">09</span><div><p class="section-kicker">YOUR DATA</p><h2 id="files-title">Files and history</h2></div></div>
+        <div class="section-head"><span class="section-number">10</span><div><p class="section-kicker">YOUR DATA</p><h2 id="files-title">Files and history</h2></div></div>
         <p>Favorites and run history live in ordinary files under your home directory. You can inspect, back up, or remove them yourself.</p>
         <div class="file-list"><div><span>Favorites</span><code>~/.config/runui/favorites.json</code><small>or under <code>$XDG_CONFIG_HOME</code></small></div><div><span>Runs, metadata &amp; output</span><code>~/.local/state/runui/runs/</code><small>or under <code>$XDG_STATE_HOME</code></small></div></div>
         <p>A run's folder holds <code>run.json</code>, <code>output.log</code>, and a lock held by its supervisor. The lock tells Runui whether the run is still alive, even after the interface exits.</p>

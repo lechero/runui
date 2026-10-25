@@ -16,7 +16,7 @@ def main() -> None:
         raise SystemExit("invalid commit")
     if tag is not None and tag != f"v{version}":
         raise SystemExit("tag must match version")
-    source = f'      tag: "{tag}",\n' if tag else ""
+    source = f'      tag:      "{tag}",\n' if tag else ""
     print(
         f'''class Runui < Formula
   desc "Project commands and persistent runs in your terminal"

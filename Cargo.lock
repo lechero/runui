@@ -401,7 +401,7 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
 name = "runui"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "chrono",
@@ -419,7 +419,7 @@ dependencies = [
 
 [[package]]
 name = "runui-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "chrono",
@@ -431,7 +431,7 @@ dependencies = [
 
 [[package]]
 name = "runui-favorites"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "chrono",
@@ -443,7 +443,7 @@ dependencies = [
 
 [[package]]
 name = "runui-project"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "regex",
@@ -453,7 +453,7 @@ dependencies = [
 
 [[package]]
 name = "runui-runs"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "chrono",
@@ -466,7 +466,7 @@ dependencies = [
 
 [[package]]
 name = "runui-tea"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "crossterm",
  "unicode-segmentation",
@@ -474,7 +474,7 @@ dependencies = [
 
 [[package]]
 name = "runui-tui"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "chrono",
