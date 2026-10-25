@@ -5,7 +5,7 @@
 
 ## Layout
 One crate per Go package, under `crates/`:
-- `runui`: the binary (`cmd/runui`): the commands (`list`, `ps`, the hidden `_supervise`), the flags and the usage text, as Go's flag package reads and says them.
+- `runui`: the binary (`cmd/runui`): the commands (`list`, `ps`, the hidden `_supervise`), the flags and the usage text, as Go's flag package reads and says them. `mcp` is a Rust-only stdio server in `src/cli/mcp.rs` that uses the same project, favorites, and run stores.
 - `runui-tui`: the interface (`internal/runui/tui`), file for file: `lib.rs` is model.go, then `view.rs`, `rows.rs`, `styles.rs`.
 - `runui-project`: the project's files (`internal/runui/project`): `taskfile.rs`, `npm.rs`, `makefile.rs`, `compose.rs`, `maven.rs`, and the folders looked in (`lib.rs`). Its `yaml` is go.yaml.in/yaml/v3 ported (from aemui's aem-local) and its `xml` Go's encoding/xml (from aemui's aem-vault), so files read as the Go build reads them and their errors read the same.
 - `runui-favorites`: `~/.config/runui/favorites.json` (`internal/runui/favorites`).
@@ -17,7 +17,7 @@ One crate per Go package, under `crates/`:
 ## Build, test and run
 - `task build` builds `bin/runui`; `task install` puts it in `~/.local/bin`; `task run -- …` runs it on the folder you're in.
 - `task test` tests the workspace and runs clippy with warnings as errors; `task lint` also checks `cargo fmt`. Run it before a commit. One crate: `cargo test -p runui-project`.
-- `task compare` builds the Go runui from `~/dotfiles/apps` (`GO_APPS=…` for another checkout) and checks this build against it: `runui list` byte for byte on edge cases and random mutations of every kind of project file, then both interfaces side by side in a private tmux server, cell by cell after each key, and a run started by one found and stopped by the other. Run it after a change that shows: words, layout, keys, files.
+- `task compare` builds the Go runui from `~/dotfiles/apps` (`GO_APPS=…` for another checkout) and checks this build against it: `runui list` byte for byte on edge cases and random mutations of every kind of project file, then both interfaces side by side in a private tmux server, cell by cell after each key, and a run started by one found and stopped by the other. The Rust-only `mcp` line is omitted from help output before comparison. Run it after a change that shows: words, layout, keys, files.
 - Tests never touch your own config or runs: they work in temporary folders. A test that starts a run starts the test binary itself as its supervisor (`tests::supervise_helper`, Go's TestMain), so supervisors, process groups and signals are tested for real.
 
 ## Style
