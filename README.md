@@ -33,6 +33,7 @@ runui                   # open the interface for the current project
 runui -C ~/projects/app  # open another project
 runui list              # print its favorites, commands, and runs
 runui ps                # print runs from all folders, live ones first
+runui status            # print counts for a terminal status line
 runui mcp -C ~/projects/app  # serve tools to an MCP client over stdio
 ```
 
@@ -90,6 +91,16 @@ Each command runs in its own folder through `sh -c` (and through `mise exec` whe
 | Runs and output | `~/.local/state/runui/runs` | `$XDG_STATE_HOME/runui/runs` |
 
 The Rust and Go builds read and write the same formats. A favorite or run created in either build is visible in the other, including its stored output and stop control. Forty ended runs are kept across folders.
+
+### Status line
+
+`runui status` reads all stored runs and prints one stable, shell-friendly line:
+
+```text
+running=2 completed=1 errored=0
+```
+
+Starting and active commands count as running. A command that exits with code 0 counts as completed; a nonzero exit, failed start, or lost supervisor counts as errored. Runs deliberately stopped with `s` are omitted. The counts cover all folders and include retained history, so the completed and errored values remain visible after a command ends. The tmux proof of concept in `~/dotfiles/dot_config/tmux/tmux.conf` renders these counts on the right side of the status line.
 
 ## Use with an agent
 

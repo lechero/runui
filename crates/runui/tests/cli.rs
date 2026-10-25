@@ -63,6 +63,7 @@ fn usage() {
         let (code, out, _) = s.run(args);
         assert!(code == EXIT_OK && out.contains("Usage:"), "{args:?}: {code}, {out:?}");
         assert!(out.contains("runui mcp [-C DIR]"), "{args:?}: {out:?}");
+        assert!(out.contains("runui status"), "{args:?}: {out:?}");
     }
     for args in [&["nope"][..], &["list", "extra"], &["-x"], &["_supervise"]] {
         let (code, _, err) = s.run(args);
@@ -125,6 +126,14 @@ fn ps_with_nothing_run() {
 }
 
 #[test]
+fn status_with_nothing_run() {
+    let s = sandbox();
+    let (code, out, err) = s.run(&["status"]);
+    assert_eq!(code, EXIT_OK, "{err}");
+    assert_eq!(out, "running=0 completed=0 errored=0\n");
+}
+
+#[test]
 fn supervise_without_a_run() {
     let s = sandbox();
     let t = tempfile::tempdir().unwrap();
@@ -154,6 +163,9 @@ fn a_run_from_the_binary_outlives_it() {
     let (code, out, _) = s.run(&["ps"]);
     assert!(code == EXIT_OK && out.starts_with("● serve  echo serving; sleep 30  · running for "), "{out:?}");
     assert!(out.ends_with(" · in ~/projects/app\n"), "{out:?}");
+    let (code, out, err) = s.run(&["status"]);
+    assert_eq!(code, EXIT_OK, "{err}");
+    assert_eq!(out, "running=1 completed=0 errored=0\n");
     let (_, out, _) = s.run(&["list", "-C", &s.dir]);
     assert!(out.contains("Runs here\n  ● serve  echo serving; sleep 30  · running for "), "{out}");
     store.stop(&store.get(&r.id).unwrap()).unwrap();
@@ -163,4 +175,30 @@ fn a_run_from_the_binary_outlives_it() {
     }
     let (_, out, _) = s.run(&["ps"]);
     assert!(out.starts_with("■ serve  echo serving; sleep 30  · stopped after "), "{out:?}");
+    let (code, out, err) = s.run(&["status"]);
+    assert_eq!(code, EXIT_OK, "{err}");
+    assert_eq!(out, "running=0 completed=0 errored=0\n");
+}
+
+#[test]
+fn status_counts_successful_and_failed_runs() {
+    let s = sandbox();
+    let store = runui_runs::Store {
+        root: filepath::join(&[&s.root, "state", "runui", "runs"]),
+        exe: vec![env!("CARGO_BIN_EXE_runui").into(), "_supervise".into()],
+        shell: vec!["/bin/sh".into(), "-c".into()],
+        env: Vec::new(),
+    };
+    let (ok, err) = store.start(&s.dir, "succeed", "exit 0");
+    assert!(err.is_none(), "{err:?}");
+    let (bad, err) = store.start(&s.dir, "fail", "exit 7");
+    assert!(err.is_none(), "{err:?}");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while ![&ok, &bad].iter().all(|r| store.get(&r.id).is_ok_and(|r| r.state() == runui_runs::State::Exited)) {
+        assert!(std::time::Instant::now() < deadline, "the runs never ended");
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    let (code, out, err) = s.run(&["status"]);
+    assert_eq!(code, EXIT_OK, "{err}");
+    assert_eq!(out, "running=0 completed=1 errored=1\n");
 }
