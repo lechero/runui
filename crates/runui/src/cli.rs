@@ -35,7 +35,7 @@ Usage:
   runui list [-C DIR]   print the folder's favorites, its project's commands
                         and its runs; changes nothing
   runui ps              print every run, everywhere, the ones going first
-  runui status          print running, completed and errored counts for tmux
+  runui status [clear]  print counts for tmux; clear finished counts
   runui mcp [-C DIR]    serve project commands and runs to an MCP client over stdio
 
 Flags:
@@ -103,7 +103,8 @@ fn dispatch(
         return Ok(runs::supervise(&args[0])?);
     }
     let (dir, rest) = parse_flags(args)?;
-    if let Some(extra) = rest.first() {
+    let clear_status = cmd == "status" && rest.as_slice() == ["clear"];
+    if let Some(extra) = rest.first().filter(|_| !clear_status) {
         return Err(Failure::Usage(format!("unexpected {}", quote(extra))));
     }
     let dir = match dir {
@@ -118,7 +119,7 @@ fn dispatch(
         "" => open(canceled, &w, stderr)?,
         "list" => list(&w, stdout)?,
         "ps" => ps(&w, stdout)?,
-        "status" => status(&w, stdout)?,
+        "status" => status(&w, clear_status, stdout)?,
         "mcp" => mcp::serve(&w, std::io::stdin().lock(), stdout)?,
         "help" => return Err(Failure::Help),
         _ => return Err(Failure::Usage(format!("unknown command {}", quote(cmd)))),
@@ -316,18 +317,23 @@ fn ps(w: &Workspace, out: &mut dyn Write) -> Result<()> {
     Ok(())
 }
 
-/// status prints counts for status bars. Stopped runs are left out because
-/// stopping a command is neither a successful nor a failed completion.
-fn status(w: &Workspace, out: &mut dyn Write) -> Result<()> {
+/// status prints counts for status bars. Completed and errored runs count
+/// until viewed or cleared. Stopped runs are left out.
+fn status(w: &Workspace, clear: bool, out: &mut dyn Write) -> Result<()> {
     let mut running = 0;
     let mut completed = 0;
     let mut errored = 0;
-    for r in w.runs()?.list()? {
+    let store = w.runs()?;
+    for r in store.list()? {
+        if clear {
+            store.acknowledge(&r)?;
+        }
         match r.state() {
             State::Starting | State::Running => running += 1,
-            State::Exited if r.exit == Some(0) => completed += 1,
-            State::Exited | State::Lost => errored += 1,
+            State::Exited if r.exit == Some(0) && !store.acknowledged(&r) => completed += 1,
+            State::Exited | State::Lost if !store.acknowledged(&r) => errored += 1,
             State::Stopped => {}
+            State::Exited | State::Lost => {}
         }
     }
     writeln!(out, "running={running} completed={completed} errored={errored}")?;

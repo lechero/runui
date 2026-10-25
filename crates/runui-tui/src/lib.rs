@@ -37,6 +37,7 @@ pub trait Runner: Send + Sync {
     fn list(&self) -> anyhow::Result<Vec<Run>>;
     fn stop(&self, r: &Run) -> anyhow::Result<()>;
     fn remove(&self, r: &Run) -> anyhow::Result<()>;
+    fn acknowledge(&self, r: &Run) -> anyhow::Result<()>;
 }
 
 impl Runner for runs::Store {
@@ -51,6 +52,9 @@ impl Runner for runs::Store {
     }
     fn remove(&self, r: &Run) -> anyhow::Result<()> {
         runs::Store::remove(self, r)
+    }
+    fn acknowledge(&self, r: &Run) -> anyhow::Result<()> {
+        runs::Store::acknowledge(self, r)
     }
 }
 
@@ -513,6 +517,7 @@ impl App {
         self.panels[PANEL_RUNS].views[0].set(here);
         self.panels[PANEL_RUNS].views[1].set(all);
         self.sync_output();
+        self.acknowledge_viewed_run();
     }
 
     /// shown is the view showing in the panel with the focus.
@@ -551,6 +556,16 @@ impl App {
             return self.run_of(&it.run.id).cloned();
         }
         self.last_run(&it.dir, &it.command).cloned()
+    }
+
+    /// A focused output pane means the run's result was viewed. Selecting a
+    /// row for preview alone does not dismiss it from the status line.
+    fn acknowledge_viewed_run(&self) {
+        if self.focus == Focus::Pane
+            && let Some(r) = self.pane_run()
+        {
+            let _ = self.cfg.runs.acknowledge(&r);
+        }
     }
 
     /// sync_output reads the output of the run the pane shows, when that's
@@ -642,6 +657,7 @@ impl App {
             self.sync_output();
         } else if m(&k.focus_pane) {
             self.focus = Focus::Pane;
+            self.acknowledge_viewed_run();
         } else if m(&k.up) {
             self.shown_mut().move_by(-1);
             self.sync_output();
@@ -796,6 +812,7 @@ impl App {
         let it = self.selected()?;
         if it.kind == Kind::Run {
             self.focus = Focus::Pane;
+            self.acknowledge_viewed_run();
             return None;
         }
         if self.last_run(&it.dir, &it.command).is_some_and(|r| r.live()) {
@@ -1069,6 +1086,7 @@ impl App {
         self.keys_shown = false;
         if self.geom.pane.has(m.x, m.y) {
             self.focus = Focus::Pane;
+            self.acknowledge_viewed_run();
             return None;
         }
         let areas = self.geom.panels.clone();

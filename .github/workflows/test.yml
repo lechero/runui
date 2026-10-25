@@ -25,3 +25,13 @@ jobs:
         run: cargo fmt --all --check
       - name: clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
+
+  homebrew:
+    name: Homebrew formula
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ruby syntax
+        run: ruby -c Formula/runui.rb
+      - name: Homebrew style
+        run: brew style Formula/runui.rb

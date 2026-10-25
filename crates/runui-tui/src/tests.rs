@@ -358,6 +358,43 @@ fn without_favorites_it_opens_on_whats_going() {
 }
 
 #[test]
+fn viewing_finished_output_acknowledges_its_status() {
+    let w = new_world();
+    let (r, err) = w.runs.start(&w.dir, "done", "echo done");
+    assert!(err.is_none(), "{err:?}");
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !w.runs.get(&r.id).is_ok_and(|r| r.state() == runs::State::Exited) {
+        assert!(Instant::now() < deadline, "the run never ended");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+
+    let mut h = open(&w);
+    h.keys(&["3"]);
+    assert_eq!(h.selected().run.id, r.id);
+    assert!(!w.runs.acknowledged(&r), "opening and previewing dismissed the run");
+    h.keys(&["enter"]);
+    assert!(w.runs.acknowledged(&r), "viewing the output didn't dismiss it");
+    assert!(w.runs.get(&r.id).is_ok(), "viewing removed the run");
+}
+
+#[test]
+fn focused_output_acknowledges_a_run_when_it_finishes() {
+    let w = new_world();
+    let (r, err) = w.runs.start(&w.dir, "soon", "sleep 1; echo finished");
+    assert!(err.is_none(), "{err:?}");
+    let mut h = open(&w);
+    h.keys(&["3", "enter"]);
+    assert!(!w.runs.acknowledged(&r), "a live run was dismissed");
+    h.wait_for("finished");
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !w.runs.acknowledged(&r) {
+        h.refresh();
+        assert!(Instant::now() < deadline, "the focused run was not dismissed when it ended");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+#[test]
 fn run_again() {
     let w = new_world();
     w.add(fav("echo started; sleep 30"));

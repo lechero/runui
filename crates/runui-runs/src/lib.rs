@@ -46,6 +46,7 @@ pub fn on_signals(signals: &[i32], deliver: impl Fn(i32) -> bool + Send + 'stati
 const RUN_FILE: &str = "run.json";
 const OUTPUT_FILE: &str = "output.log";
 const LOCK_FILE: &str = "lock";
+const SEEN_FILE: &str = "status.seen";
 
 /// KEPT is how many runs that have ended are kept, the last ones; starting
 /// a command again forgets its runs that have ended before then.
@@ -332,6 +333,26 @@ impl Store {
     /// get is a run as it is now.
     pub fn get(&self, id: &str) -> Result<Run> {
         read_run(&filepath::join(&[&self.root, id]))
+    }
+
+    /// acknowledged says a finished run's result has been viewed or cleared.
+    pub fn acknowledged(&self, r: &Run) -> bool {
+        Path::new(&r.folder).join(SEEN_FILE).exists()
+    }
+
+    /// acknowledge dismisses a finished run from status counts, keeping its
+    /// metadata and output. A running run still gets counted when it ends.
+    pub fn acknowledge(&self, r: &Run) -> Result<()> {
+        let r = self.get(&r.id)?;
+        if !matches!(r.state(), State::Exited | State::Lost) {
+            return Ok(());
+        }
+        let path = Path::new(&r.folder).join(SEEN_FILE);
+        match OpenOptions::new().write(true).create_new(true).mode(0o600).open(&path) {
+            Ok(_) => Ok(()),
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => Ok(()),
+            Err(e) => Err(golang::path_error("open", &path, e)),
+        }
     }
 
     /// stop asks a run's supervisor to stop it: the command's process group

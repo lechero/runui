@@ -166,6 +166,9 @@ fn a_run_from_the_binary_outlives_it() {
     let (code, out, err) = s.run(&["status"]);
     assert_eq!(code, EXIT_OK, "{err}");
     assert_eq!(out, "running=1 completed=0 errored=0\n");
+    let (code, out, err) = s.run(&["status", "clear"]);
+    assert_eq!(code, EXIT_OK, "{err}");
+    assert_eq!(out, "running=1 completed=0 errored=0\n");
     let (_, out, _) = s.run(&["list", "-C", &s.dir]);
     assert!(out.contains("Runs here\n  ● serve  echo serving; sleep 30  · running for "), "{out}");
     store.stop(&store.get(&r.id).unwrap()).unwrap();
@@ -201,4 +204,17 @@ fn status_counts_successful_and_failed_runs() {
     let (code, out, err) = s.run(&["status"]);
     assert_eq!(code, EXIT_OK, "{err}");
     assert_eq!(out, "running=0 completed=1 errored=1\n");
+
+    store.acknowledge(&ok).unwrap();
+    let (code, out, err) = s.run(&["status"]);
+    assert_eq!(code, EXIT_OK, "{err}");
+    assert_eq!(out, "running=0 completed=0 errored=1\n");
+
+    let (code, out, err) = s.run(&["status", "clear"]);
+    assert_eq!(code, EXIT_OK, "{err}");
+    assert_eq!(out, "running=0 completed=0 errored=0\n");
+    assert!(store.get(&ok.id).is_ok() && store.get(&bad.id).is_ok());
+    let (code, out, err) = s.run(&["status"]);
+    assert_eq!(code, EXIT_OK, "{err}");
+    assert_eq!(out, "running=0 completed=0 errored=0\n");
 }

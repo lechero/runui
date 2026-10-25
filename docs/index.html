@@ -39,9 +39,9 @@
         <a href="#keyboard">Keyboard reference</a>
         <a href="#cli">CLI reference</a>
         <a href="#mcp">Agent tools (MCP)</a>
-        <a href="#files">Files &amp; compatibility</a>
+        <a href="#files">Files &amp; history</a>
       </nav>
-      <div class="sidebar-note"><span class="status-dot"></span> Rust port of the Go runui<br><small>Same keys. Same data. Same runs.</small></div>
+      <div class="sidebar-note"><span class="status-dot"></span> Project commands, ready to run<br><small>Pick a command. Keep its output.</small></div>
     </aside>
 
     <main id="content">
@@ -68,8 +68,10 @@
 
       <section class="content-section" id="quickstart" aria-labelledby="quickstart-title">
         <div class="section-head"><span class="section-number">01</span><div><p class="section-kicker">GET MOVING</p><h2 id="quickstart-title">Quick start</h2></div></div>
-        <p>Build from this repository with Rust 1.88 or newer on macOS or Linux. <a href="https://taskfile.dev">Task</a> is the shortest route; Cargo works directly too.</p>
+        <p>Install with Homebrew on macOS or Linux, or build from this repository with Rust 1.88 or newer.</p>
         <div class="code-grid">
+          <div class="code-card code-card-primary"><div class="code-label">With Homebrew</div><pre><code>brew tap lechero/runui https://github.com/lechero/runui.git
+brew install lechero/runui/runui</code></pre><p>Homebrew builds Runui from source and installs Rust as a build dependency.</p></div>
           <div class="code-card"><div class="code-label">With Task</div><pre><code>task install</code></pre><p>Installs to <code>~/.local/bin</code>.</p></div>
           <div class="code-card"><div class="code-label">With Cargo</div><pre><code>cargo install --path crates/runui --root ~/.local --locked</code></pre><p>Put <code>~/.local/bin</code> on your <code>PATH</code>.</p></div>
         </div>
@@ -146,7 +148,7 @@
           <div><code>runui [-C DIR]</code><p>Open the interface in the current project or a specified folder. <code>runui -h</code> prints its built-in help.</p></div>
           <div><code>runui list [-C DIR]</code><p>Print this folder's favorites, discovered commands, and runs. This only reads data.</p></div>
           <div><code>runui ps</code><p>Print every run from every folder, with live runs first.</p></div>
-          <div><code>runui status</code><p>Print <code>running=N completed=N errored=N</code> for status bars. Counts cover every folder; stopped runs are omitted.</p></div>
+          <div><code>runui status [clear]</code><p>Print <code>running=N completed=N errored=N</code> for status bars. Finished counts remain until you focus a run’s output or use <code>runui status clear</code>. Clearing keeps runs and output; running counts still show active commands. Counts cover every folder; stopped runs are omitted.</p></div>
           <div><code>runui mcp [-C DIR]</code><p>Serve local MCP tools for discovering commands and managing persistent runs over stdio.</p></div>
         </div>
         <p>Use <code>task run -- -C DIR</code> while working in this repository to build and launch the local binary with arguments.</p>
@@ -176,11 +178,11 @@
       </section>
 
       <section class="content-section" id="files" aria-labelledby="files-title">
-        <div class="section-head"><span class="section-number">09</span><div><p class="section-kicker">UNDER THE HOOD</p><h2 id="files-title">Files and compatibility</h2></div></div>
-        <p>Favorites and runs use the same paths and file formats as the original Go app. The Go build can find, follow, and stop a Rust run, and the Rust build can do the same for a Go run.</p>
+        <div class="section-head"><span class="section-number">09</span><div><p class="section-kicker">YOUR DATA</p><h2 id="files-title">Files and history</h2></div></div>
+        <p>Favorites and run history live in ordinary files under your home directory. You can inspect, back up, or remove them yourself.</p>
         <div class="file-list"><div><span>Favorites</span><code>~/.config/runui/favorites.json</code><small>or under <code>$XDG_CONFIG_HOME</code></small></div><div><span>Runs, metadata &amp; output</span><code>~/.local/state/runui/runs/</code><small>or under <code>$XDG_STATE_HOME</code></small></div></div>
-        <p>A run's folder holds <code>run.json</code>, <code>output.log</code>, and a lock held by its supervisor. The lock tells the next runui whether the run is still alive, even after the first interface exits.</p>
-        <div class="callout"><strong>About this port</strong><p>The Go app remains the behavior specification. <a href="../PLAN.md">PLAN.md</a> records how the Rust port was checked, including byte-for-byte <code>list</code> comparisons and terminal screens compared cell by cell. <a href="../AGENTS.md">AGENTS.md</a> maps the workspace's crates to the original packages.</p></div>
+        <p>A run's folder holds <code>run.json</code>, <code>output.log</code>, and a lock held by its supervisor. The lock tells Runui whether the run is still alive, even after the interface exits.</p>
+        <div class="callout"><strong>Keep what matters</strong><p>Runui keeps recent completed runs so you can return to their output. The Runs panel lets you stop a live command or forget an ended one. Focusing a finished run’s output also clears its completed or errored status count without deleting the history.</p></div>
       </section>
 
       <footer class="footer"><span class="wordmark"><img src="assets/runui-mark.svg" width="27" height="27" alt=""><span>runui</span></span><p>Keep your project's commands close, and their runs close enough to find again.</p><div><a href="../README.md">README</a><a href="brand.html">Brand kit</a><a href="https://github.com/lechero/runui">Source</a><a href="#top">Back to top ↑</a></div></footer>
