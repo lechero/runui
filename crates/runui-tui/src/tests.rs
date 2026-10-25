@@ -376,6 +376,7 @@ fn an_agents_runs_have_a_tab_of_their_own() {
         v.all.iter().map(|it| &it.name).collect::<Vec<_>>()
     );
     h.wait_for("built by an agent");
+    h.wait_for("✓ exited 0"); // D forgets only a run that's over
     let s = h.screen();
     for want in ["mvn package", "· agentix ·", "by agentix · in ~/projects"] {
         assert!(s.contains(want), "the screen hasn't {want:?}:\n{s}");
