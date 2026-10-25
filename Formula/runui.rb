@@ -2,9 +2,9 @@ class Runui < Formula
   desc "Project commands and persistent runs in your terminal"
   homepage "https://github.com/lechero/runui"
   url "https://github.com/lechero/runui.git",
-      tag:      "v0.1.0",
-      revision: "66c2a0d7c8e78f39ff261dd9c216f8b244fb8df1"
-  version "0.1.0"
+      tag:      "v0.1.1",
+      revision: "99cb19302e70794288353a523dd89787bf0b9f89"
+  version "0.1.1"
   license "MIT"
 
   head "https://github.com/lechero/runui.git", branch: "main"
