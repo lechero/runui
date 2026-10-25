@@ -68,14 +68,14 @@ Use `m` to star a discovered command for this folder, or `a` to add your own she
 
 ![runui following the output of a starred command](docs/assets/running.png)
 
-The Runs panel has **Here** and **Everywhere** tabs. `●` means running, `✓` exited successfully, `✗` failed, `■` was stopped, and `?` means runui lost track of it.
+The Runs panel has **Here** and **Everywhere** tabs, and an **Agents** tab once an agent has started a run through `runui mcp`. `●` means running, `✓` exited successfully, `✗` failed, `■` was stopped, and `?` means runui lost track of it.
 
 ### Keys at a glance
 
 | Keys | Action |
 | --- | --- |
 | `tab` / `shift+tab`, `1`–`3` | Move between Favorites, Project, and Runs. |
-| `[` / `]` | Switch source tabs or Here / Everywhere. |
+| `[` / `]` | Switch source tabs or Here / Everywhere / Agents. |
 | `j` / `k`, `g` / `G` | Move through rows. |
 | `/` | Filter rows by name, folder, command, or description. |
 | `enter` | Run a command; on a run, focus its output. |
@@ -110,9 +110,9 @@ Starting and active commands count as running. A command that exits with code 0 
 
 ## Use with an agent
 
-Run `runui mcp -C /absolute/path/to/project` as a local MCP stdio server. Point your agent's MCP client at the installed `runui` binary with those arguments. The server offers `list_commands`, `start_run`, `list_runs`, `get_run`, `read_output`, and `stop_run` tools. A run started by an agent appears in the TUI and keeps running after the MCP client disconnects; runs started in the TUI are available through the same tools.
+Run `runui mcp -C /absolute/path/to/project` as a local MCP stdio server. Point your agent's MCP client at the installed `runui` binary with those arguments. The server offers `list_commands`, `start_run`, `list_runs`, `get_run`, `read_output`, and `stop_run` tools. A run started by an agent appears in the TUI, in the Agents tab under the name its MCP client gives, and keeps running after the MCP client disconnects; runs started in the TUI are available through the same tools.
 
-`start_run` accepts a shell command and optional working directory and label. `list_commands` returns the exact command and directory for discovered project commands and favorites. `read_output` returns recent plain text, up to 500 lines and 64 KiB per call; call it again to follow a live run. The [MCP guide](docs/index.html#mcp) has a client configuration example and the full tool reference.
+`start_run` accepts a shell command and optional working directory and label. `list_commands` returns the exact command and directory for discovered project commands and favorites. `read_output` returns recent plain text, up to 500 lines and 64 KiB per call; call it again to follow a live run. Runs come back with the `agent` that started them and their `output_file`, everything the run printed, for a client that would rather read it itself. The [MCP guide](docs/index.html#mcp) has a client configuration example and the full tool reference.
 
 ## Develop
 

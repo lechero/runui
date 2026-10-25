@@ -2,7 +2,8 @@
 //! stacked in a sidebar on the left, 1 the folder's favorites, 2 the
 //! project's own commands (a tab for each kind of file: Taskfile,
 //! package.json, Makefile, Compose, Maven, with the ones in the folders
-//! under it, three deep) and 3 the runs (here, and everywhere), and on the
+//! under it, three deep) and 3 the runs (here, everywhere, and the ones
+//! agents started through runui mcp, once there are some), and on the
 //! right the pane, showing what the row under the cursor runs and, once it
 //! has run, its output, followed as it's printed. A command runs under a
 //! supervisor of its own and keeps running once runui quits; the next
@@ -109,6 +110,10 @@ enum Focus {
 const PANEL_FAVORITES: usize = 0;
 const PANEL_PROJECT: usize = 1;
 const PANEL_RUNS: usize = 2;
+
+// The Runs panel's tabs: here, everywhere, and what agents started.
+const RUNS_EVERYWHERE: usize = 1;
+const RUNS_AGENTS: usize = 2;
 
 /// Panel is a box in the sidebar: its name, and its views as tabs.
 struct Panel {
@@ -480,8 +485,8 @@ impl App {
         self.rel_of(&r.dir).is_some()
     }
 
-    /// set_runs takes the runs as listed: here, the folder's, and
-    /// everywhere, every one, the ones going first.
+    /// set_runs takes the runs as listed: here, the folder's, everywhere,
+    /// every one, and the agents', the ones going first.
     fn set_runs(&mut self, list: Vec<Run>) {
         let mut seen = HashSet::new();
         self.runs = list.into_iter().filter(|r| seen.insert(r.id.clone())).collect();
@@ -498,7 +503,7 @@ impl App {
                 }
             }
         }
-        let (mut here, mut all) = (Vec::new(), Vec::new());
+        let (mut here, mut all, mut agents) = (Vec::new(), Vec::new(), Vec::new());
         for r in &self.runs {
             let mut it = Item {
                 kind: Kind::Run,
@@ -512,12 +517,35 @@ impl App {
                 (it.rel, it.place) = (rel.clone(), rel);
                 here.push(it.clone());
             }
+            if !r.agent.is_empty() {
+                agents.push(it.clone());
+            }
             all.push(it);
         }
         self.panels[PANEL_RUNS].views[0].set(here);
-        self.panels[PANEL_RUNS].views[1].set(all);
+        self.panels[PANEL_RUNS].views[RUNS_EVERYWHERE].set(all);
+        self.set_agents(agents);
         self.sync_output();
         self.acknowledge_viewed_run();
+    }
+
+    /// set_agents gives the Agents tab its rows: the runs agents started
+    /// through runui mcp, from every folder. The tab is there only while
+    /// there are some, so runui looks as the Go build does to anyone who
+    /// doesn't use one.
+    fn set_agents(&mut self, agents: Vec<Item>) {
+        let p = &mut self.panels[PANEL_RUNS];
+        if agents.is_empty() {
+            if p.views.len() > RUNS_AGENTS {
+                p.views.truncate(RUNS_AGENTS);
+                p.cur = p.cur.min(RUNS_AGENTS - 1);
+            }
+            return;
+        }
+        if p.views.len() == RUNS_AGENTS {
+            p.views.push(View::new("Agents", "nothing an agent started"));
+        }
+        p.views[RUNS_AGENTS].set(agents);
     }
 
     /// shown is the view showing in the panel with the focus.

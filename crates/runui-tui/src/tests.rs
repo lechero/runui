@@ -358,6 +358,45 @@ fn without_favorites_it_opens_on_whats_going() {
 }
 
 #[test]
+fn an_agents_runs_have_a_tab_of_their_own() {
+    let w = new_world();
+    let mut h = open(&w);
+    assert!(h.screen().contains("[3]─Here - Everywhere─"), "an Agents tab with no agent's run:\n{}", h.screen());
+    let (mine, err) = w.runs.start(&w.dir, "", "echo by hand");
+    assert!(err.is_none(), "{err:?}");
+    let elsewhere = w.home.clone() + "/projects";
+    let (theirs, err) = w.runs.start_by(&elsewhere, "mvn package", "echo built by an agent", "agentix");
+    assert!(err.is_none(), "{err:?}");
+    h.wait_for("[3]─Here - Everywhere - Agents");
+    h.keys(&["3", "]", "]"]);
+    let v = h.m.a.shown();
+    assert!(
+        v.name == "Agents" && v.all.len() == 1 && v.all[0].run.id == theirs.id,
+        "the Agents tab has {:?}",
+        v.all.iter().map(|it| &it.name).collect::<Vec<_>>()
+    );
+    h.wait_for("built by an agent");
+    let s = h.screen();
+    for want in ["mvn package", "· agentix ·", "by agentix · in ~/projects"] {
+        assert!(s.contains(want), "the screen hasn't {want:?}:\n{s}");
+    }
+    h.send(tea::msg(WindowSizeMsg { width: 200, height: 40 }));
+    h.keys(&["?"]);
+    assert!(h.screen().contains("here, everywhere and agents"), "the keys don't say so:\n{}", h.screen());
+    h.keys(&["esc", "D"]);
+    let left: Vec<String> = w.runs.list().unwrap().into_iter().map(|r| r.id).collect();
+    assert!(left == [mine.id.clone()], "D didn't forget the agent's run: {left:?}");
+    h.refresh();
+    let p = &h.m.a.panels[PANEL_RUNS];
+    assert!(
+        p.views.len() == 2 && p.cur == RUNS_EVERYWHERE,
+        "with no agent's run left: {} tabs, on {}",
+        p.views.len(),
+        p.cur
+    );
+}
+
+#[test]
 fn viewing_finished_output_acknowledges_its_status() {
     let w = new_world();
     let (r, err) = w.runs.start(&w.dir, "done", "echo done");

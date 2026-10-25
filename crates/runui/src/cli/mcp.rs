@@ -26,10 +26,20 @@ enum Phase {
     Ready,
 }
 
+/// AGENT_CHARS is how much of the client's name a run keeps.
+const AGENT_CHARS: usize = 40;
+
+/// Session is what the server knows of its client: how far the handshake
+/// has got, and the name its runs are written down with.
+struct Session {
+    phase: Phase,
+    agent: String,
+}
+
 /// serve reads one JSON-RPC message per line and writes only protocol
 /// messages to stdout. The client owns this process and closes stdin to end it.
 pub(super) fn serve(w: &Workspace, mut input: impl BufRead, out: &mut dyn Write) -> Result<()> {
-    let mut phase = Phase::Pending;
+    let mut session = Session { phase: Phase::Pending, agent: String::new() };
     let mut line = Vec::new();
     loop {
         line.clear();
@@ -37,7 +47,7 @@ pub(super) fn serve(w: &Workspace, mut input: impl BufRead, out: &mut dyn Write)
             break;
         }
         let response = match serde_json::from_slice(&line) {
-            Ok(request) => handle(w, &mut phase, request),
+            Ok(request) => handle(w, &mut session, request),
             Err(_) => Some(rpc_error(Value::Null, -32700, "Parse error")),
         };
         if let Some(response) = response {
@@ -49,7 +59,18 @@ pub(super) fn serve(w: &Workspace, mut input: impl BufRead, out: &mut dyn Write)
     Ok(())
 }
 
-fn handle(w: &Workspace, phase: &mut Phase, request: Value) -> Option<Value> {
+/// agent_name is the name a client gives itself in initialize, as a run
+/// keeps it: on one line, its first AGENT_CHARS characters; "mcp" when it
+/// gives none.
+fn agent_name(params: &Value) -> String {
+    let name = params["clientInfo"]["name"].as_str().unwrap_or_default();
+    let name: String =
+        name.chars().filter(|c| !c.is_control()).collect::<String>().trim().chars().take(AGENT_CHARS).collect();
+    if name.is_empty() { "mcp".to_string() } else { name }
+}
+
+fn handle(w: &Workspace, session: &mut Session, request: Value) -> Option<Value> {
+    let phase = &mut session.phase;
     let Some(object) = request.as_object() else {
         return Some(rpc_error(Value::Null, -32600, "Invalid Request"));
     };
@@ -76,6 +97,7 @@ fn handle(w: &Workspace, phase: &mut Phase, request: Value) -> Option<Value> {
                 return Some(rpc_error(id, -32602, "Missing protocolVersion"));
             }
             *phase = Phase::AwaitingInitialized;
+            session.agent = agent_name(&params);
             let requested = params["protocolVersion"].as_str().unwrap_or_default();
             let version = if SUPPORTED_VERSIONS.contains(&requested) { requested } else { PROTOCOL_VERSION };
             json!({
@@ -94,7 +116,7 @@ fn handle(w: &Workspace, phase: &mut Phase, request: Value) -> Option<Value> {
                 return Some(rpc_error(id, -32602, "Missing tool name"));
             };
             let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
-            match call(w, name, args) {
+            match call(w, &session.agent, name, args) {
                 Ok(data) => tool_result(data),
                 Err(e) => json!({"content": [{"type": "text", "text": format!("{e:#}")}], "isError": true}),
             }
@@ -126,7 +148,7 @@ fn tools() -> Vec<Value> {
         }),
         json!({
             "name": "start_run",
-            "description": "Start a shell command under runui's persistent supervisor. It keeps running after this MCP connection closes. The command is passed to sh -c (through mise when available).",
+            "description": "Start a shell command under runui's persistent supervisor. It keeps running after this MCP connection closes, and runui lists it in its Agents tab under this client's name. The command is passed to sh -c (through mise when available).",
             "inputSchema": {"type": "object", "properties": {
                 "command": {"type": "string", "description": "The exact shell command to run."},
                 "directory": {"type": "string", "description": "Working directory, absolute or relative to the selected project; defaults to the project directory."},
@@ -200,13 +222,13 @@ fn default_lines() -> usize {
     DEFAULT_LINES
 }
 
-fn call(w: &Workspace, name: &str, args: Value) -> Result<Value> {
+fn call(w: &Workspace, agent: &str, name: &str, args: Value) -> Result<Value> {
     match name {
         "list_commands" => {
             let _: EmptyArgs = serde_json::from_value(args)?;
             list_commands(w)
         }
-        "start_run" => start_run(w, serde_json::from_value(args)?),
+        "start_run" => start_run(w, agent, serde_json::from_value(args)?),
         "list_runs" => list_runs(w, serde_json::from_value(args)?),
         "get_run" => {
             let args: IdArgs = serde_json::from_value(args)?;
@@ -259,12 +281,12 @@ fn list_commands(w: &Workspace) -> Result<Value> {
     Ok(json!({"project_directory": w.dir, "commands": commands, "errors": errors}))
 }
 
-fn start_run(w: &Workspace, args: StartArgs) -> Result<Value> {
+fn start_run(w: &Workspace, agent: &str, args: StartArgs) -> Result<Value> {
     if args.command.trim().is_empty() {
         return Err(anyhow!("command must not be empty"));
     }
     let dir = directory(w, args.directory.as_deref())?;
-    let (run, error) = w.runs()?.start(&dir, &args.name, &args.command);
+    let (run, error) = w.runs()?.start_by(&dir, &args.name, &args.command, agent);
     if let Some(error) = error {
         return Err(error);
     }
@@ -344,6 +366,10 @@ fn run_data(run: &Run) -> Value {
         "signal": run.signal,
         "error": run.error,
         "pid": run.pid,
+        "agent": run.agent,
+        // everything it printed, as it prints it: for a client that follows
+        // it from where it got to
+        "output_file": run.output(),
     })
 }
 
