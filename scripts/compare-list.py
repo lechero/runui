@@ -70,10 +70,17 @@ def compare(name, args, cwd=HOME):
     checked += 1
     global not_utf8
     g, r = run(GO, args, cwd), run(RS, args, cwd)
-    if g != r and (g[0], go_lossy(g[1]), go_lossy(g[2])) == r:
+    # MCP is a Rust-only command. Keep its one help line visible to users,
+    # then compare every other byte of Go's CLI output as before.
+    mcp_line = b"  runui mcp [-C DIR]    serve project commands and runs to an MCP client over stdio\n"
+    if b"Usage:\n" in g[1] + g[2]:
+        normalized = (r[0], r[1].replace(mcp_line, b"", 1), r[2].replace(mcp_line, b"", 1))
+    else:
+        normalized = r
+    if g != normalized and (g[0], go_lossy(g[1]), go_lossy(g[2])) == normalized:
         not_utf8 += 1
         return
-    if g != r:
+    if g != normalized:
         failures += 1
         if failures <= 25:
             print(f"--- {name}: {args}")

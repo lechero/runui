@@ -14,6 +14,8 @@ use runui_runs::{self as runs, Run, State};
 use runui_tea::tea::Program;
 use runui_tui as tui;
 
+mod mcp;
+
 // Exit codes.
 pub(crate) const EXIT_OK: i32 = 0;
 pub(crate) const EXIT_FAILURE: i32 = 1;
@@ -33,6 +35,7 @@ Usage:
   runui list [-C DIR]   print the folder's favorites, its project's commands
                         and its runs; changes nothing
   runui ps              print every run, everywhere, the ones going first
+  runui mcp [-C DIR]    serve project commands and runs to an MCP client over stdio
 
 Flags:
   -C DIR  the folder (default: this one, or the project above it with a
@@ -114,6 +117,7 @@ fn dispatch(
         "" => open(canceled, &w, stderr)?,
         "list" => list(&w, stdout)?,
         "ps" => ps(&w, stdout)?,
+        "mcp" => mcp::serve(&w, std::io::stdin().lock(), stdout)?,
         "help" => return Err(Failure::Help),
         _ => return Err(Failure::Usage(format!("unknown command {}", quote(cmd)))),
     }

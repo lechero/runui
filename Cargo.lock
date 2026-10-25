@@ -412,6 +412,8 @@ dependencies = [
  "runui-runs",
  "runui-tea",
  "runui-tui",
+ "serde",
+ "serde_json",
  "tempfile",
 ]
 
