@@ -1,0 +1,29 @@
+[package]
+name = "runui"
+description = "runui: a folder's commands at hand, run from one place, and kept running"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[[bin]]
+name = "runui"
+path = "src/main.rs"
+
+[dependencies]
+runui-core.workspace = true
+runui-tea.workspace = true
+runui-project.workspace = true
+runui-favorites.workspace = true
+runui-runs.workspace = true
+runui-tui.workspace = true
+anyhow.workspace = true
+chrono.workspace = true
+libc.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,58 @@
+version: "3"
+
+vars:
+  BIN: "{{.ROOT_DIR}}/bin/runui"
+  # the Go runui this one is checked against, and where the check works
+  GO_APPS: '{{.GO_APPS | default (print .HOME "/dotfiles/apps")}}'
+  WORK: '{{.WORK | default (printf "%s/runui-compare" (env "TMPDIR" | default "/tmp" | trimSuffix "/"))}}'
+
+tasks:
+  default:
+    desc: List the tasks
+    silent: true
+    cmd: task --list
+
+  build:
+    desc: Build runui into bin/
+    sources: ["crates/**/*.rs", "crates/**/Cargo.toml", Cargo.toml, Cargo.lock]
+    generates: [bin/runui]
+    cmds:
+      - cargo build --release -p runui
+      - mkdir -p bin && cp target/release/runui bin/
+
+  install:
+    desc: Install runui into ~/.local/bin
+    cmd: cargo install --path crates/runui --root "$HOME/.local" --locked
+
+  run:
+    desc: "Open runui on the folder you're in (task run -- -C DIR, or any command: task run -- ps)"
+    deps: [build]
+    interactive: true
+    dir: "{{.USER_WORKING_DIR}}"
+    cmd: "{{.BIN}} {{.CLI_ARGS}}"
+
+  test:
+    desc: Test and lint
+    cmds:
+      - cargo test --workspace
+      - cargo clippy --workspace --all-targets -- -D warnings
+
+  lint:
+    desc: Lint the Rust code and check its formatting
+    cmds:
+      - cargo clippy --workspace --all-targets -- -D warnings
+      - cargo fmt --all --check
+
+  fmt:
+    desc: Format the Rust code
+    cmd: cargo fmt --all
+
+  compare:
+    desc: "Check this build against the Go runui (GO_APPS, ~/dotfiles/apps): runui list on every kind of project file, mutated at random, then both interfaces side by side in tmux"
+    cmds:
+      - cargo build --release -p runui
+      - mkdir -p "{{.WORK}}"
+      - cd "{{.GO_APPS}}" && go build -o "{{.WORK}}/runui-go" ./cmd/runui
+      - cp target/release/runui "{{.WORK}}/runui-rs"
+      - RUNUI_COMPARE="{{.WORK}}" python3 scripts/compare-list.py {{.CLI_ARGS}}
+      - RUNUI_COMPARE="{{.WORK}}" python3 scripts/compare-tui.py

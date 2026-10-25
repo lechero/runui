@@ -1,0 +1,5 @@
+# Cargo's build output, the binary task build copies, and Task's cache
+/target/
+/bin/
+.task/
+.DS_Store

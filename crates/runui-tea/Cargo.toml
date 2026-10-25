@@ -1,0 +1,15 @@
+[package]
+name = "runui-tea"
+description = "The terminal runtime, styles and widgets the interface is drawn with"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+crossterm.workspace = true
+unicode-segmentation.workspace = true
+
+[lints]
+workspace = true

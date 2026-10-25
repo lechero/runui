@@ -1,0 +1,62 @@
+name: release
+
+# a v* tag builds runui for macOS and Linux and publishes the archives as
+# a GitHub release
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - { os: macos-latest, target: aarch64-apple-darwin, name: darwin_arm64 }
+          - { os: macos-latest, target: x86_64-apple-darwin, name: darwin_amd64 }
+          - { os: ubuntu-latest, target: x86_64-unknown-linux-gnu, name: linux_amd64 }
+          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu, name: linux_arm64 }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: test
+        run: cargo test --workspace
+      - name: build
+        run: cargo build --release --locked -p runui --target ${{ matrix.target }}
+      - name: archive
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          dir="runui_${version}_${{ matrix.name }}"
+          mkdir "$dir"
+          cp target/${{ matrix.target }}/release/runui LICENSE README.md "$dir"/
+          tar czf "$dir.tar.gz" "$dir"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: "*.tar.gz"
+
+  release:
+    name: publish
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+      - name: checksums
+        run: sha256sum *.tar.gz > checksums.txt
+      - name: release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          prerelease=""
+          case "$GITHUB_REF_NAME" in *-*) prerelease="--prerelease" ;; esac
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --generate-notes $prerelease \
+            --notes "Take the archive for your system below and put \`runui\` on your PATH." \
+            *.tar.gz checksums.txt

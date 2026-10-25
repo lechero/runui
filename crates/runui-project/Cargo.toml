@@ -1,0 +1,19 @@
+[package]
+name = "runui-project"
+description = "The commands a project's files define: a Taskfile's tasks, package.json's scripts, a Makefile's targets, a compose file's services and a pom's builds"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+runui-core.workspace = true
+anyhow.workspace = true
+regex.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true
