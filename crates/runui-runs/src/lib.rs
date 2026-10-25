@@ -104,6 +104,11 @@ pub struct Run {
     /// why it couldn't start
     #[serde(default, deserialize_with = "nullable", skip_serializing_if = "String::is_empty")]
     pub error: String,
+    /// the agent that started it through runui mcp, as its MCP client
+    /// names itself (agentix, claude-code); "" for a run started here. The
+    /// Go build has no such field: it reads past it, and writes none.
+    #[serde(default, deserialize_with = "nullable", skip_serializing_if = "String::is_empty")]
+    pub agent: String,
 
     #[serde(skip)]
     folder: String,
@@ -128,6 +133,7 @@ impl Default for Run {
             signal: String::new(),
             stopped: false,
             error: String::new(),
+            agent: String::new(),
             folder: String::new(),
             live: false,
         }
@@ -228,7 +234,13 @@ impl Store {
     /// runui. A supervisor that couldn't start is written down as a run
     /// that couldn't, and comes back with the error.
     pub fn start(&self, dir: &str, name: &str, command: &str) -> (Run, Option<anyhow::Error>) {
-        match self.try_start(dir, name, command) {
+        self.start_by(dir, name, command, "")
+    }
+
+    /// start_by is start for an agent, its name written down in the run:
+    /// runui mcp starts its runs this way.
+    pub fn start_by(&self, dir: &str, name: &str, command: &str, agent: &str) -> (Run, Option<anyhow::Error>) {
+        match self.try_start(dir, name, command, agent) {
             Ok(r) => (r, None),
             Err(failed) => {
                 let (r, e) = *failed;
@@ -237,7 +249,13 @@ impl Store {
         }
     }
 
-    fn try_start(&self, dir: &str, name: &str, command: &str) -> std::result::Result<Run, Box<(Run, anyhow::Error)>> {
+    fn try_start(
+        &self,
+        dir: &str,
+        name: &str,
+        command: &str,
+        agent: &str,
+    ) -> std::result::Result<Run, Box<(Run, anyhow::Error)>> {
         let none = |e: anyhow::Error| Box::new((Run::default(), e));
         if self.exe.is_empty() {
             return Err(none(anyhow!("no supervisor to start")));
@@ -251,6 +269,7 @@ impl Store {
             command: command.to_string(),
             shell,
             started: Utc::now(),
+            agent: agent.to_string(),
             ..Default::default()
         };
         r.folder = filepath::join(&[&self.root, &r.id]);

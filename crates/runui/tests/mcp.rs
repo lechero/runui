@@ -36,6 +36,10 @@ impl Client {
     }
 }
 
+fn id_of(run: &Value) -> String {
+    run["structuredContent"]["id"].as_str().unwrap().to_string()
+}
+
 impl Drop for Client {
     fn drop(&mut self) {
         let _ = self.child.kill();
@@ -84,6 +88,9 @@ fn mcp_discovers_starts_reads_and_stops_a_run() {
 
     let started = client.tool(5, "start_run", json!({"command": "echo MCP_READY; sleep 5", "name": "mcp test"}));
     assert_eq!(started["isError"], false, "{started}");
+    assert_eq!(started["structuredContent"]["agent"], "test", "the run isn't the client's: {started}");
+    let file = started["structuredContent"]["output_file"].as_str().unwrap().to_string();
+    assert!(file.ends_with("/output.log") && file.contains(&id_of(&started)), "its output file is {file}");
     let id = started["structuredContent"]["id"].as_str().unwrap().to_string();
     let listed = client.tool(6, "list_runs", json!({}));
     assert!(listed["structuredContent"]["runs"].as_array().unwrap().iter().any(|run| run["id"] == id));

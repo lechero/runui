@@ -119,7 +119,7 @@ brew install lechero/runui/runui</code></pre><p>Homebrew builds Runui from sourc
 
       <section class="content-section" id="runs" aria-labelledby="runs-title">
         <div class="section-head"><span class="section-number">05</span><div><p class="section-kicker">PERSISTENT BY DESIGN</p><h2 id="runs-title">Runs and their output</h2></div></div>
-        <p>Every command has its own supervisor and output file. The <strong>Runs</strong> panel shows runs in this project under <strong>Here</strong>, with an <strong>Everywhere</strong> tab for runs from other folders. Selecting a run previews its stored output; pressing <kbd>enter</kbd> focuses the output and <a href="#status-bars">acknowledges its result</a>.</p>
+        <p>Every command has its own supervisor and output file. The <strong>Runs</strong> panel shows runs in this project under <strong>Here</strong>, with an <strong>Everywhere</strong> tab for runs from other folders. Once an agent has started a run through <code>runui mcp</code>, an <strong>Agents</strong> tab lists the runs agents started, wherever they are, each with the name its MCP client gave (<code>agentix</code>, <code>claude-code</code>); it goes away when the last of them is forgotten. Selecting a run previews its stored output; pressing <kbd>enter</kbd> focuses the output and <a href="#status-bars">acknowledges its result</a>.</p>
         <div class="state-grid" aria-label="Run status symbols"><div><b class="good">●</b><span>Running</span></div><div><b class="muted">✓</b><span>Exited 0</span></div><div><b class="bad">✗</b><span>Failed</span></div><div><b class="muted">■</b><span>Stopped</span></div><div><b class="warn">?</b><span>Lost</span></div></div>
         <div class="two-screens"><figure class="screen"><a href="assets/runs.png" aria-label="Open full-size Runs screenshot"><img src="assets/runs.png" width="1610" height="716" alt="The Runs panel selected while the preview command is running" loading="lazy"></a><figcaption>While running: output keeps arriving.</figcaption></figure><figure class="screen"><a href="assets/stopped.png" aria-label="Open full-size stopped run screenshot"><img src="assets/stopped.png" width="1610" height="716" alt="The preview run after stop, with its previous output still available" loading="lazy"></a><figcaption>After <kbd>s</kbd>: the output remains.</figcaption></figure></div>
         <p>Stopping sends SIGTERM to the command's process group, then SIGKILL after five seconds if it is still there. Press <kbd>D</kbd> on an ended run to forget it and its output. runui retains up to 40 ended runs across folders.</p>
@@ -153,7 +153,7 @@ set -ag status-right '#(runui status tmux)'</code></pre></div>
         <p>Press <kbd>?</kbd> inside runui for the complete in-app key sheet. The mouse can select rows and scroll output too.</p>
         <div class="table-wrap"><table><thead><tr><th>Keys</th><th>What they do</th></tr></thead><tbody>
           <tr><td><kbd>tab</kbd> / <kbd>shift+tab</kbd>, <kbd>1</kbd>–<kbd>3</kbd></td><td>Switch between Favorites, Project, and Runs.</td></tr>
-          <tr><td><kbd>[</kbd> / <kbd>]</kbd></td><td>Switch file type or Here / Everywhere tab.</td></tr>
+          <tr><td><kbd>[</kbd> / <kbd>]</kbd></td><td>Switch file type or Here / Everywhere / Agents tab.</td></tr>
           <tr><td><kbd>j</kbd> / <kbd>k</kbd>, <kbd>g</kbd> / <kbd>G</kbd></td><td>Move through rows or jump to the first / last row.</td></tr>
           <tr><td><kbd>/</kbd>, <kbd>esc</kbd></td><td>Filter the current tab; clear the filter.</td></tr>
           <tr><td><kbd>enter</kbd>, <kbd>s</kbd>, <kbd>R</kbd></td><td>Run, stop, or restart; enter on a run focuses its output.</td></tr>
@@ -192,9 +192,9 @@ set -ag status-right '#(runui status tmux)'</code></pre></div>
         <p class="fine-print">MCP clients use different configuration file names and shapes; use these command and argument values in your client's MCP server settings. On macOS, the installed binary is commonly under <code>/Users/you/.local/bin/runui</code>.</p>
         <div class="table-wrap"><table><thead><tr><th>Tool</th><th>What it does</th></tr></thead><tbody>
           <tr><td><code>list_commands</code></td><td>Return discovered project commands and saved favorites with their exact shell command and working directory.</td></tr>
-          <tr><td><code>start_run</code></td><td>Start a shell command under a persistent supervisor. Accepts <code>command</code>, optional <code>directory</code>, and optional <code>name</code>; returns the run ID.</td></tr>
+          <tr><td><code>start_run</code></td><td>Start a shell command under a persistent supervisor. Accepts <code>command</code>, optional <code>directory</code>, and optional <code>name</code>; returns the run, recorded as started by the client's name, which the Agents tab shows.</td></tr>
           <tr><td><code>list_runs</code></td><td>List runs across all folders, with an optional exact working directory filter.</td></tr>
-          <tr><td><code>get_run</code></td><td>Read a run's current state, timestamps, exit code, and other metadata by ID.</td></tr>
+          <tr><td><code>get_run</code></td><td>Read a run's current state, timestamps, exit code, the agent that started it, its <code>output_file</code>, and other metadata by ID.</td></tr>
           <tr><td><code>read_output</code></td><td>Read recent plain-text output by ID. Returns at most 500 lines and 64 KiB; poll to follow a live run.</td></tr>
           <tr><td><code>stop_run</code></td><td>Ask the supervisor to stop the run's process group, then use <code>get_run</code> to see its final state.</td></tr>
         </tbody></table></div>

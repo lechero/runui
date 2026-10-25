@@ -10,7 +10,7 @@ use runui_tea::style::{self, CENTER, LEFT, TOP};
 
 use crate::rows::{Item, Kind, View};
 use crate::styles::*;
-use crate::{App, Area, Focus, Geometry, PANEL_RUNS};
+use crate::{App, Area, Focus, Geometry, PANEL_RUNS, RUNS_AGENTS, RUNS_EVERYWHERE};
 
 /// PORTRAIT_BELOW is how wide the window must be for the sidebar beside
 /// the pane: narrower, the panel with the focus goes on top of it.
@@ -226,7 +226,9 @@ impl App {
     /// focus and in grey when it hasn't; a problem reading it and the
     /// filter first.
     fn panel_rows(&mut self, i: usize, width: i32, height: i32, focused: bool) -> Vec<String> {
-        let everywhere = i == PANEL_RUNS && self.panels[i].cur == 1;
+        // the tabs with runs from every folder: Everywhere, and Agents
+        let everywhere = i == PANEL_RUNS && self.panels[i].cur >= RUNS_EVERYWHERE;
+        let agents = i == PANEL_RUNS && self.panels[i].cur == RUNS_AGENTS;
         let p = &mut self.panels[i];
         let v = &mut p.views[p.cur];
         let mut out = Vec::new();
@@ -262,7 +264,7 @@ impl App {
         let top = v.top;
         let rows: Vec<Item> = v.shown.iter().skip(top as usize).take(height as usize).cloned().collect();
         for (n, it) in rows.iter().enumerate() {
-            let mut r = ansi::truncate(&self.row(everywhere, it), width, "…");
+            let mut r = ansi::truncate(&self.row(everywhere, agents, it), width, "…");
             if top + n as i32 == at {
                 let style = if focused { S_ROW_ACTIVE } else { S_ROW_IDLE };
                 r = style.render(&pad(&ansi::strip(&r), width));
@@ -273,8 +275,9 @@ impl App {
     }
 
     /// row is an item as its panel lists it: the state of its last run, a ★
-    /// for a favorite, its name, and what it is, dimmed.
-    fn row(&self, everywhere: bool, it: &Item) -> String {
+    /// for a favorite, its name, and what it is, dimmed; in the Agents tab,
+    /// a run's agent too.
+    fn row(&self, everywhere: bool, agents: bool, it: &Item) -> String {
         let mark = match self.row_run(it) {
             Some(r) => self.state_mark(r),
             None => " ".to_string(),
@@ -301,6 +304,9 @@ impl App {
             Kind::Run => {
                 let r = self.run_of(&it.run.id).cloned().unwrap_or_default();
                 let mut hint = human(r.took((self.cfg.now)()));
+                if agents && !r.agent.is_empty() {
+                    hint = format!("{hint} · {}", r.agent);
+                }
                 if everywhere {
                     // everywhere: its whole folder instead
                     place = String::new();
@@ -492,7 +498,9 @@ impl App {
     /// origin says where a row comes from, and the folder it runs in.
     fn origin(&self, it: &Item) -> String {
         let place = format!(" · in {}", self.short(&it.dir));
-        if it.kind == Kind::Run {
+        if it.kind == Kind::Run && !it.run.agent.is_empty() {
+            format!("started {} by {}{place}", when(it.run.started, (self.cfg.now)()), it.run.agent)
+        } else if it.kind == Kind::Run {
             format!("started {}{place}", when(it.run.started, (self.cfg.now)()))
         } else if it.source.is_empty() {
             format!("a command of your own{place}")
@@ -568,12 +576,18 @@ impl App {
             out
         };
         let h = |b: &Binding| b.help().key.clone();
+        // the Agents tab, there once an agent has started something
+        let tabs = if self.panels[PANEL_RUNS].views.len() > RUNS_AGENTS {
+            "a panel's tabs: Taskfile, package.json, Makefile, Compose, Maven; here, everywhere and agents"
+        } else {
+            "a panel's tabs: Taskfile, package.json, Makefile, Compose, Maven; here and everywhere"
+        };
         let mut lines = group(
             "Moving about",
             &[
                 (format!("{} {}", h(&k.next_panel), h(&k.prev_panel)), "the next and the previous panel"),
                 (h(&k.panels), "a panel: 1 Favorites, 2 the project's commands, 3 Runs"),
-                (h(&k.tabs), "a panel's tabs: Taskfile, package.json, Makefile, Compose, Maven; here and everywhere"),
+                (h(&k.tabs), tabs),
                 ("↑/k ↓/j g G".into(), "along its rows"),
                 (h(&k.filter), "filter its rows by what you type; esc clears it"),
                 (
