@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b1220">
+  <meta name="description" content="The illustrated guide to runui: discover project commands, keep favorites, follow output, and manage runs that outlive the terminal.">
+  <title>runui — the illustrated guide</title>
+  <link rel="icon" href="assets/runui-mark.svg" type="image/svg+xml">
+  <link rel="alternate icon" href="assets/favicon.ico" sizes="any">
+  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <a class="skip-link" href="#content">Skip to content</a>
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="wordmark" href="#top" aria-label="runui, back to top"><img src="assets/runui-mark.svg" width="34" height="34" alt=""><span>runui</span></a>
+      <nav aria-label="Top navigation">
+        <a class="nav-mobile-hide" href="#quickstart">Get started</a>
+        <a class="nav-secondary" href="#keyboard">Keys</a>
+        <a href="brand.html">Brand</a>
+        <a class="nav-secondary" href="../README.md">README</a>
+        <a class="github-link" href="https://github.com/lechero/runui">GitHub <span aria-hidden="true">↗</span></a>
+      </nav>
+    </div>
+  </header>
+
+  <div class="layout" id="top">
+    <aside class="sidebar" aria-label="Guide contents">
+      <p class="sidebar-label">THE GUIDE</p>
+      <nav>
+        <a href="#overview">Overview</a>
+        <a href="#quickstart">Quick start</a>
+        <a href="#workflow">A run, start to finish</a>
+        <a href="#sources">Project commands</a>
+        <a href="#favorites">Favorites &amp; your own</a>
+        <a href="#runs">Runs &amp; output</a>
+        <a href="#keyboard">Keyboard reference</a>
+        <a href="#cli">CLI reference</a>
+        <a href="#files">Files &amp; compatibility</a>
+      </nav>
+      <div class="sidebar-note"><span class="status-dot"></span> Rust port of the Go runui<br><small>Same keys. Same data. Same runs.</small></div>
+    </aside>
+
+    <main id="content">
+      <section class="hero" id="overview" aria-labelledby="hero-title">
+        <div class="hero-copy">
+          <p class="eyebrow"><span class="eyebrow-rule"></span> ONE PLACE FOR PROJECT COMMANDS</p>
+          <h1 id="hero-title">Your project, <em>ready to run.</em></h1>
+          <p class="hero-lede">runui finds the tasks, scripts, targets, services, and builds in a folder. Pick one, watch its output, and close the interface whenever you like. The command keeps running until you stop it.</p>
+          <div class="hero-actions">
+            <a class="button button-primary" href="#quickstart">Start using runui <span aria-hidden="true">→</span></a>
+            <a class="button button-secondary" href="#workflow">See how a run works</a>
+          </div>
+          <div class="hero-facts" aria-label="At a glance">
+            <span><strong>5</strong> project file types</span>
+            <span><strong>3</strong> panels</span>
+            <span><strong>1</strong> persistent run history</span>
+          </div>
+        </div>
+        <figure class="screen hero-screen">
+          <a href="assets/running.png" aria-label="Open full-size screenshot of live run output"><img src="assets/running.png" width="1610" height="716" alt="runui showing a starred preview task, its live output, and the same run in the Runs panel"></a>
+          <figcaption>A real runui capture from an isolated sample project. The left side chooses a command; the right side follows its output.</figcaption>
+        </figure>
+      </section>
+
+      <section class="content-section" id="quickstart" aria-labelledby="quickstart-title">
+        <div class="section-head"><span class="section-number">01</span><div><p class="section-kicker">GET MOVING</p><h2 id="quickstart-title">Quick start</h2></div></div>
+        <p>Build from this repository with Rust 1.88 or newer on macOS or Linux. <a href="https://taskfile.dev">Task</a> is the shortest route; Cargo works directly too.</p>
+        <div class="code-grid">
+          <div class="code-card"><div class="code-label">With Task</div><pre><code>task install</code></pre><p>Installs to <code>~/.local/bin</code>.</p></div>
+          <div class="code-card"><div class="code-label">With Cargo</div><pre><code>cargo install --path crates/runui --root ~/.local --locked</code></pre><p>Put <code>~/.local/bin</code> on your <code>PATH</code>.</p></div>
+        </div>
+        <div class="terminal-example"><div class="terminal-label"><span class="status-dot"></span> Try it in a project</div><pre><code><span class="muted">$</span> runui
+<span class="muted">$</span> runui -C ~/projects/atlas
+<span class="muted">$</span> runui list
+<span class="muted">$</span> runui ps</code></pre></div>
+        <p class="fine-print">runui discovers commands; the corresponding tool must be installed to run one. For example, a Taskfile task needs <code>task</code>, and a Compose service needs Docker Compose.</p>
+      </section>
+
+      <section class="content-section" id="workflow" aria-labelledby="workflow-title">
+        <div class="section-head"><span class="section-number">02</span><div><p class="section-kicker">THE CORE LOOP</p><h2 id="workflow-title">A run, start to finish</h2></div></div>
+        <div class="steps">
+          <div class="step"><span>1</span><div><h3>Find it</h3><p>Choose a row in <strong>Project</strong>, or press <kbd>/</kbd> and filter by its name, folder, command, or description.</p></div></div>
+          <div class="step"><span>2</span><div><h3>Run it</h3><p>Press <kbd>enter</kbd>. The command starts in the folder where its project file lives, and its output appears in the right pane.</p></div></div>
+          <div class="step"><span>3</span><div><h3>Leave it</h3><p>Press <kbd>q</kbd> or close the terminal. A separate supervisor keeps the command running and saves what it prints.</p></div></div>
+          <div class="step"><span>4</span><div><h3>Come back</h3><p>Open runui again. Select the run to read its output, press <kbd>s</kbd> to stop it, or <kbd>R</kbd> to run it again.</p></div></div>
+        </div>
+        <figure class="screen"><a href="assets/tour.gif" aria-label="Open animated runui tour"><img src="assets/tour.gif" width="1610" height="716" alt="Animated tour showing a favorite, its live output, the Runs panel, filtering, and a stopped run" loading="lazy"></a><figcaption>The tour moves through favorites, live output, runs, filtering, and stopping. <a href="assets/running.png">View a still screenshot</a>.</figcaption></figure>
+        <div class="two-screens snapshot-pair"><figure class="screen"><a href="assets/project.png" aria-label="Open full-size screenshot of the Project panel"><img src="assets/project.png" width="1610" height="716" alt="The Project panel listing Taskfile tasks in the sample project" loading="lazy"></a><figcaption>Project commands are ready before anything is run.</figcaption></figure><figure class="screen"><a href="assets/filter.png" aria-label="Open full-size screenshot of filtered commands"><img src="assets/filter.png" width="1610" height="716" alt="The package scripts filtered to matches for web, including apps/web commands" loading="lazy"></a><figcaption>Press <kbd>/</kbd> to narrow a tab to matching commands.</figcaption></figure></div>
+      </section>
+
+      <section class="content-section" id="sources" aria-labelledby="sources-title">
+        <div class="section-head"><span class="section-number">03</span><div><p class="section-kicker">DISCOVERY</p><h2 id="sources-title">Commands already in your project</h2></div></div>
+        <p>runui starts at the nearest project folder above your current directory, stopping at the repository root. It reads that folder and folders under it three levels deep. A command from <code>apps/web</code> is labeled with that path and runs there.</p>
+        <div class="source-grid">
+          <article class="source-card"><span class="source-tag">01 / TASK</span><h3>Taskfile</h3><p>Tasks and included tasks, using their names and descriptions. Internal tasks stay out of the list.</p><code>task 'docs:serve'</code></article>
+          <article class="source-card"><span class="source-tag">02 / PACKAGE</span><h3>package.json</h3><p>Scripts through pnpm, yarn, bun, or npm, as the package manager field or nearest lock file selects.</p><code>pnpm run dev</code></article>
+          <article class="source-card"><span class="source-tag">03 / MAKE</span><h3>Makefile</h3><p>Targets with their <code>##</code> comments shown beside them.</p><code>make test</code></article>
+          <article class="source-card"><span class="source-tag">04 / CONTAINERS</span><h3>Compose</h3><p>Start all services, rebuild, stop, inspect, follow logs, or start a single service.</p><code>docker compose up</code></article>
+          <article class="source-card"><span class="source-tag">05 / JAVA</span><h3>Maven</h3><p>Install, verify, test, and profile builds. Uses the project's <code>mvnw</code> when it has one.</p><code>./mvnw clean verify</code></article>
+        </div>
+        <figure class="screen"><a href="assets/scripts.png" aria-label="Open full-size screenshot of package scripts"><img src="assets/scripts.png" width="1610" height="716" alt="Project panel on the package.json tab, showing root scripts and scripts from apps/web" loading="lazy"></a><figcaption>Use <kbd>2</kbd> for Project and <kbd>[</kbd> / <kbd>]</kbd> to switch among file types. This tab includes scripts in <code>apps/web</code>.</figcaption></figure>
+        <div class="source-shots"><figure class="screen"><a href="assets/makefile.png" aria-label="Open full-size Makefile screenshot"><img src="assets/makefile.png" width="1610" height="716" alt="Project panel listing Make targets and their comments" loading="lazy"></a><figcaption>Makefile targets</figcaption></figure><figure class="screen"><a href="assets/compose.png" aria-label="Open full-size Compose screenshot"><img src="assets/compose.png" width="1610" height="716" alt="Project panel listing Compose actions and services" loading="lazy"></a><figcaption>Compose actions and services</figcaption></figure><figure class="screen"><a href="assets/maven.png" aria-label="Open full-size Maven screenshot"><img src="assets/maven.png" width="1610" height="716" alt="Project panel listing Maven goals and a profile build" loading="lazy"></a><figcaption>Maven builds and profiles</figcaption></figure></div>
+        <div class="callout"><strong>When files change</strong><p>runui notices edits to files it reads. Press <kbd>r</kbd> to scan again, including newly added files in nested folders.</p></div>
+      </section>
+
+      <section class="content-section" id="favorites" aria-labelledby="favorites-title">
+        <div class="section-head"><span class="section-number">04</span><div><p class="section-kicker">MAKE IT YOURS</p><h2 id="favorites-title">Favorites and your own commands</h2></div></div>
+        <p>Press <kbd>m</kbd> on a project command to keep it in this folder's Favorites panel. Press <kbd>a</kbd> to add a named command of your own, entered exactly as you would run it with <code>sh</code> in this folder.</p>
+        <div class="split-note"><div><span class="mark star">★</span><h3>Starred commands</h3><p>Point back to a task, script, target, service, or build. You can remove the star with <kbd>m</kbd>.</p></div><div><span class="mark dollar">$</span><h3>Your commands</h3><p>Created with <kbd>a</kbd>. Edit with <kbd>e</kbd>, reorder with <kbd>&lt;</kbd> and <kbd>&gt;</kbd>, or remove with <kbd>D</kbd>.</p></div></div>
+        <figure class="screen"><a href="assets/add-command.png" aria-label="Open full-size screenshot of the add command form"><img src="assets/add-command.png" width="1610" height="716" alt="The Add a command of your own form with Name and Command fields" loading="lazy"></a><figcaption>The form asks for a name and a shell command. <kbd>tab</kbd> changes fields; <kbd>enter</kbd> saves.</figcaption></figure>
+      </section>
+
+      <section class="content-section" id="runs" aria-labelledby="runs-title">
+        <div class="section-head"><span class="section-number">05</span><div><p class="section-kicker">PERSISTENT BY DESIGN</p><h2 id="runs-title">Runs and their output</h2></div></div>
+        <p>Every command has its own supervisor and output file. The <strong>Runs</strong> panel shows runs in this project under <strong>Here</strong>, with an <strong>Everywhere</strong> tab for runs from other folders. Selecting a run brings its stored output back into view.</p>
+        <div class="state-grid" aria-label="Run status symbols"><div><b class="good">●</b><span>Running</span></div><div><b class="muted">✓</b><span>Exited 0</span></div><div><b class="bad">✗</b><span>Failed</span></div><div><b class="muted">■</b><span>Stopped</span></div><div><b class="warn">?</b><span>Lost</span></div></div>
+        <div class="two-screens"><figure class="screen"><a href="assets/runs.png" aria-label="Open full-size Runs screenshot"><img src="assets/runs.png" width="1610" height="716" alt="The Runs panel selected while the preview command is running" loading="lazy"></a><figcaption>While running: output keeps arriving.</figcaption></figure><figure class="screen"><a href="assets/stopped.png" aria-label="Open full-size stopped run screenshot"><img src="assets/stopped.png" width="1610" height="716" alt="The preview run after stop, with its previous output still available" loading="lazy"></a><figcaption>After <kbd>s</kbd>: the output remains.</figcaption></figure></div>
+        <p>Stopping sends SIGTERM to the command's process group, then SIGKILL after five seconds if it is still there. Press <kbd>D</kbd> on an ended run to forget it and its output. runui retains up to 40 ended runs across folders.</p>
+      </section>
+
+      <section class="content-section" id="keyboard" aria-labelledby="keyboard-title">
+        <div class="section-head"><span class="section-number">06</span><div><p class="section-kicker">STAY IN FLOW</p><h2 id="keyboard-title">Keyboard reference</h2></div></div>
+        <p>Press <kbd>?</kbd> inside runui for the complete in-app key sheet. The mouse can select rows and scroll output too.</p>
+        <div class="table-wrap"><table><thead><tr><th>Keys</th><th>What they do</th></tr></thead><tbody>
+          <tr><td><kbd>tab</kbd> / <kbd>shift+tab</kbd>, <kbd>1</kbd>–<kbd>3</kbd></td><td>Switch between Favorites, Project, and Runs.</td></tr>
+          <tr><td><kbd>[</kbd> / <kbd>]</kbd></td><td>Switch file type or Here / Everywhere tab.</td></tr>
+          <tr><td><kbd>j</kbd> / <kbd>k</kbd>, <kbd>g</kbd> / <kbd>G</kbd></td><td>Move through rows or jump to the first / last row.</td></tr>
+          <tr><td><kbd>/</kbd>, <kbd>esc</kbd></td><td>Filter the current tab; clear the filter.</td></tr>
+          <tr><td><kbd>enter</kbd>, <kbd>s</kbd>, <kbd>R</kbd></td><td>Run, stop, or restart; enter on a run focuses its output.</td></tr>
+          <tr><td><kbd>0</kbd>, <kbd>esc</kbd>, <kbd>+</kbd> / <kbd>_</kbd></td><td>Focus output, return to the panel, or give output the full window and restore it.</td></tr>
+          <tr><td><kbd>pgup</kbd> / <kbd>pgdn</kbd>, <kbd>J</kbd> / <kbd>K</kbd></td><td>Scroll output from a panel; <kbd>G</kbd> there resumes following it.</td></tr>
+          <tr><td><kbd>m</kbd>, <kbd>a</kbd>, <kbd>e</kbd>, <kbd>D</kbd></td><td>Star, add, edit, or remove a favorite; forget an ended run with <kbd>D</kbd>.</td></tr>
+          <tr><td><kbd>&lt;</kbd> / <kbd>&gt;</kbd>, <kbd>y</kbd>, <kbd>r</kbd></td><td>Reorder a favorite, copy a command, or reload project files.</td></tr>
+          <tr><td><kbd>q</kbd></td><td>Quit while commands keep running.</td></tr>
+        </tbody></table></div>
+        <figure class="screen"><a href="assets/keys.png" aria-label="Open full-size in-app key sheet"><img src="assets/keys.png" width="1610" height="900" alt="The in-app Keys overlay listing movement, command, and exit keys" loading="lazy"></a><figcaption>The in-app help opened with <kbd>?</kbd>.</figcaption></figure>
+      </section>
+
+      <section class="content-section" id="cli" aria-labelledby="cli-title">
+        <div class="section-head"><span class="section-number">07</span><div><p class="section-kicker">FROM THE SHELL</p><h2 id="cli-title">CLI reference</h2></div></div>
+        <div class="cli-list">
+          <div><code>runui [-C DIR]</code><p>Open the interface in the current project or a specified folder. <code>runui -h</code> prints its built-in help.</p></div>
+          <div><code>runui list [-C DIR]</code><p>Print this folder's favorites, discovered commands, and runs. This only reads data.</p></div>
+          <div><code>runui ps</code><p>Print every run from every folder, with live runs first.</p></div>
+        </div>
+        <p>Use <code>task run -- -C DIR</code> while working in this repository to build and launch the local binary with arguments.</p>
+      </section>
+
+      <section class="content-section" id="files" aria-labelledby="files-title">
+        <div class="section-head"><span class="section-number">08</span><div><p class="section-kicker">UNDER THE HOOD</p><h2 id="files-title">Files and compatibility</h2></div></div>
+        <p>Favorites and runs use the same paths and file formats as the original Go app. The Go build can find, follow, and stop a Rust run, and the Rust build can do the same for a Go run.</p>
+        <div class="file-list"><div><span>Favorites</span><code>~/.config/runui/favorites.json</code><small>or under <code>$XDG_CONFIG_HOME</code></small></div><div><span>Runs, metadata &amp; output</span><code>~/.local/state/runui/runs/</code><small>or under <code>$XDG_STATE_HOME</code></small></div></div>
+        <p>A run's folder holds <code>run.json</code>, <code>output.log</code>, and a lock held by its supervisor. The lock tells the next runui whether the run is still alive, even after the first interface exits.</p>
+        <div class="callout"><strong>About this port</strong><p>The Go app remains the behavior specification. <a href="../PLAN.md">PLAN.md</a> records how the Rust port was checked, including byte-for-byte <code>list</code> comparisons and terminal screens compared cell by cell. <a href="../AGENTS.md">AGENTS.md</a> maps the workspace's crates to the original packages.</p></div>
+      </section>
+
+      <footer class="footer"><span class="wordmark"><img src="assets/runui-mark.svg" width="27" height="27" alt=""><span>runui</span></span><p>Keep your project's commands close, and their runs close enough to find again.</p><div><a href="../README.md">README</a><a href="brand.html">Brand kit</a><a href="https://github.com/lechero/runui">Source</a><a href="#top">Back to top ↑</a></div></footer>
+    </main>
+  </div>
+</body>
+</html>

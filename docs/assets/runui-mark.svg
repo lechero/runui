@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
+  <title id="title">runui mark</title>
+  <desc id="desc">A cyan terminal prompt and a green cursor inside a dark rounded square.</desc>
+  <rect x="1" y="1" width="62" height="62" rx="15" fill="#0B1220" stroke="#3D556D" stroke-width="2"/>
+  <path d="M17 18 32 32 17 46" fill="none" stroke="#7DD3FC" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M37 46h11" fill="none" stroke="#4ADE80" stroke-width="6" stroke-linecap="round"/>
+</svg>

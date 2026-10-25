@@ -1,106 +1,105 @@
-# runui, in Rust
+# runui
 
-A folder's commands at hand, run from one place, and kept running: [runui](https://github.com/lechero/dotfiles/tree/main/apps/cmd/runui) ported from Go to Rust, the same binary, `runui`, with the same commands, interface, keys and files. It's a terminal interface laid out as [aem-cli](https://github.com/lechero/aem-cli)'s and lazygit's are: panels stacked on the left, the output on the right.
+<img src="docs/assets/runui-logo.svg" alt="runui logo: terminal prompt and cursor" width="292">
 
-The Go build in the dotfiles (`apps/cmd/runui`, `apps/internal/runui`) is the specification; [PLAN.md](PLAN.md) says how it's ported and how the two were checked against each other. Both builds read and write the same files, so either finds, follows and stops the other's runs.
+**A terminal home for the commands in your project.** Run a Taskfile task, package script, Make target, Docker Compose service, Maven build, or a command of your own. Watch its output live, leave the terminal, and come back to the same run later.
 
-```bash
-runui                  # the project you're in: its commands, your favorites, what's running
-runui -C ~/projects/x  # another folder
-runui list             # the same, printed; changes nothing
-runui ps               # every run, everywhere, the ones going first
-```
+This is the Rust port of [runui in the dotfiles](https://github.com/lechero/dotfiles/tree/main/apps/cmd/runui). It keeps the Go app's commands, keys, interface, and on-disk formats. See [PLAN.md](PLAN.md) for the port and compatibility checks.
+
+![runui tour: favorite, run, inspect, filter, stop](docs/assets/tour.gif)
+
+The captures use a disposable sample project and a separate home directory. [Open the illustrated guide](docs/index.html) for the full tour.
 
 ## Install
 
-With Rust 1.88 or newer, from a clone, with [Task](https://taskfile.dev):
+Requires Rust 1.88 or newer on macOS or Linux. From a clone:
 
-```bash
-task install     # puts runui in ~/.local/bin
+```sh
+task install
 ```
 
-or without Task:
+This installs `runui` to `~/.local/bin`. Without [Task](https://taskfile.dev):
 
-```bash
+```sh
 cargo install --path crates/runui --root ~/.local --locked
 ```
 
-In the dotfiles, tmux's `alt-x` opens runui in a popup over the pane you're in and Neovim's `Space o x` in a float; both run whichever `runui` is first on the PATH, so this one takes over once it's in `~/.local/bin` ahead of the Go build. What it starts keeps running when the popup or the float goes.
+Make sure `~/.local/bin` is on your `PATH`. Commands discovered in a project use that project's tools, such as `task`, a package manager, `make`, `docker compose`, or Maven.
 
-Opened in a project's `src` folder, it works on the project: the nearest folder above with a `Taskfile.yml`, a `package.json`, a `Makefile`, a compose file or a `pom.xml`, up to the repository's root.
+## Start here
 
-## What it shows
-
-```text
-╭─[1]─Favorites──────────────╮╭─dev › output──────────────────────────────────────╮
-│● ★ dev  pnpm run dev       ││dev ★                                              │
-│✓ $ greet  echo hello; date ││$ pnpm run dev                                     │
-╰─────────────────────1 of 2─╯│from package.json · in ~/projects/georgi           │
-╭─[2]─Taskfile - package.json╮│vite --host 127.0.0.1                              │
-│● ★ dev  vite --host 127.0.…││                                                   │
-│    build  vite build       ││● running for 3s · pid 73971 · s stops it, R runs …│
-│    lint  eslint .          ││───────────────────────────────────────────────────│
-╰────────────────────1 of 11─╯│  VITE v7.3.6  ready in 483 ms                     │
-╭─[3]─Here - Everywhere──────╮│                                                   │
-│● dev  3s                   ││  ➜  Local:   http://127.0.0.1:5173/               │
-╰─────────1 running · 1 of 1─╯╰───────────────────────────────────────────────────╯
-✓ started pnpm run dev
-enter run • m favorite (★) • s stop • R run again • a add your own • / filter • ? all keys • q quit
+```sh
+runui                   # open the interface for the current project
+runui -C ~/projects/app  # open another project
+runui list              # print its favorites, commands, and runs
+runui ps                # print runs from all folders, live ones first
 ```
 
-1. **Favorites**: this folder's saved commands. `★` is one of the project's, starred with `m`; `$` is a command of your own, added with `a`.
-2. **The project's commands**, a tab for each kind of file:
-   - **Taskfile**: its tasks, with the ones its includes bring, named as Task names them (`docs:serve`), internal ones left out;
-   - **package.json**: its scripts, run through pnpm, yarn, bun or npm, as its `packageManager` field or the nearest lock file says (a workspace's is at its root);
-   - **Makefile**: its targets, with their `##` comments;
-   - **Compose**: `docker compose up` (the logs follow in the pane, `s` stops every service), `up --build`, `down`, `ps`, `logs -f`, and each service up on its own with its image or what it's built from; a compose file for a purpose (`docker-compose.dev.yml`) gets its own rows, with `-f`;
-   - **Maven**: `clean install`, `clean verify`, `test`, and `clean install -P…` for each profile that isn't on by default, its modules' too (the AEM archetype's `autoInstallPackage`, `autoInstallBundle`… are in `ui.apps`, `ui.content` and `core`), through `mvnw` where the project has one.
+Opening from `src/` or another subfolder selects the nearest parent with a supported project file, up to the repository root. The Project panel also finds files in folders below it, three levels deep, so commands from `apps/web` or a Maven module appear with their folder and run there.
 
-   The folders under the project's are looked in too, three deep, so a monorepo's `apps/web` and `packages/ui` and a Maven project's modules are there, each row after its folder (`apps/web › dev`), and it runs in that folder. Hidden folders and what tools make or download (`node_modules`, `vendor`, `dist`, `build`, `target`, …) are left out, and so is a Taskfile another one includes. Outside a repository, a folder that isn't a project (`~/projects`) isn't looked under. An edit to the files shows by itself; a new file in a folder under it shows with `r`. `/` filters by name, folder, command or description, the rows whose name has it first.
-3. **Runs**: what runui started here, and on the other tab everywhere. `●` running, `✓` exited 0, `✗` failed, `■` stopped, `?` lost track of it.
+### Where commands come from
 
-On the right, the row under the cursor: what it runs, where it's from, how its last run went, and that run's output, followed as it's printed.
-
-It opens on the favorites when the folder has some, the cursor on one that's running, so its output is there at once; else on the Runs panel when something's going here; else on the project's commands.
-
-## Keys
-
-The frame's are lazygit's, as aem-cli's are: `tab`/`l` and `shift+tab`/`h` go from panel to panel, `1`-`3` to one, `[` and `]` along its tabs, `j` and `k` along its rows, `0` (or `enter` on a run) gives the output the keys, `esc` goes back, `pgup`/`pgdn` and `J`/`K` scroll the output from a panel, `+` gives it the whole window and `_` takes it back, `/` filters. The mouse picks rows and scrolls.
-
-| Key | Does |
+| Project file | Commands runui offers |
 | --- | --- |
-| `enter` | Run it, in its folder; the output shows as it's printed |
-| `s` | Stop it: its process group gets SIGTERM, SIGKILL 5 s later if it's still there |
-| `R` | Run it again, stopping it first |
-| `m` | Keep it in this folder's favorites, or take it out |
-| `a` | Add a command of your own to the favorites |
-| `e` | Edit a favorite: its name and its command |
-| `D` | Take a favorite out (asking, for one of your own), or forget a run that has ended |
-| `<` `>` | Move a favorite up or down |
-| `y` | Copy the command (through the terminal, OSC 52) |
-| `r` | Read the project's files again |
-| `?` | Every key |
-| `q` | Quit; what's running keeps running |
+| `Taskfile.yml` | Tasks, including named tasks from included Taskfiles; internal tasks are hidden. |
+| `package.json` | Scripts through its declared package manager or the nearest lock file's manager: pnpm, yarn, bun, or npm. |
+| `Makefile` | Targets, with `##` comments as descriptions. |
+| `compose.yaml` and other Compose files | `up`, `up --build`, `down`, `ps`, `logs -f`, and `up` for each service. |
+| `pom.xml` | `clean install`, `clean verify`, `test`, and builds for non-default profiles; uses `mvnw` when present. |
 
-## Runs outlive it
+Use `m` to star a discovered command for this folder, or `a` to add your own shell command. Favorites are saved per folder.
 
-runui doesn't run a command itself: it starts a supervisor, `runui _supervise`, in a session of its own, so quitting runui, closing the terminal or the tmux popup leaves the command running. The supervisor runs it with `sh -c` in its folder, through `mise exec` where there's mise (so it gets the Node the folder pins, even from a popup, which doesn't start a shell with mise active), in a process group of its own, with its output in a file and its stdin a pipe kept open (some dev servers stop when stdin closes). It writes down when the command ends and how.
+![The Project panel showing package scripts from the root and apps/web](docs/assets/scripts.png)
 
-Each run is a folder in `~/.local/state/runui/runs` (`$XDG_STATE_HOME`): `run.json`, `output.log`, and a `lock` the supervisor holds for as long as the command runs. The next runui knows a run is still going because the lock is held; the system lets go of it when the supervisor ends, however it ends, so a restart can't leave a run that looks alive. Stopping asks the supervisor, which sends the command's process group SIGTERM, then SIGKILL. Starting a command again forgets its runs here that have ended; 40 ended runs are kept in all.
+## A typical session
 
-The favorites are `~/.config/runui/favorites.json` (`$XDG_CONFIG_HOME`), a list per folder, each with the folder under it that it runs in. Every change reads the file again first, so two runuis open at once don't undo each other's.
+1. Select a command with `j`/`k`, or switch panels with `tab` and source tabs with `[`/`]`.
+2. Press `enter` to run it. Output appears on the right as the command prints it.
+3. Press `q` when you are done looking. The run keeps going under its own supervisor.
+4. Open runui again to follow the same output. Press `s` to stop it or `R` to restart it.
+
+![runui following the output of a starred command](docs/assets/running.png)
+
+The Runs panel has **Here** and **Everywhere** tabs. `●` means running, `✓` exited successfully, `✗` failed, `■` was stopped, and `?` means runui lost track of it.
+
+### Keys at a glance
+
+| Keys | Action |
+| --- | --- |
+| `tab` / `shift+tab`, `1`–`3` | Move between Favorites, Project, and Runs. |
+| `[` / `]` | Switch source tabs or Here / Everywhere. |
+| `j` / `k`, `g` / `G` | Move through rows. |
+| `/` | Filter rows by name, folder, command, or description. |
+| `enter` | Run a command; on a run, focus its output. |
+| `s` / `R` | Stop or restart a run. |
+| `m` / `a` / `e` / `D` | Star, add, edit, or remove a favorite; `D` also forgets an ended run. |
+| `0`, `esc`, `+` / `_` | Focus output, return to a panel, or expand / restore the output. |
+| `?` | Show every key in the app. |
+| `q` | Quit while runs continue. |
+
+The interface also supports mouse selection and scrolling. [The guide](docs/index.html#keyboard) covers output scrolling, copying commands, refreshing files, and favorite order.
+
+## Runs and data
+
+Each command runs in its own folder through `sh -c` (and through `mise exec` when mise is available). A separate supervisor keeps it alive after runui or its terminal closes. It records output and the final state, and stops the command's process group with SIGTERM followed by SIGKILL after five seconds if needed.
+
+| Data | Default location | Override |
+| --- | --- | --- |
+| Favorites | `~/.config/runui/favorites.json` | `$XDG_CONFIG_HOME/runui/favorites.json` |
+| Runs and output | `~/.local/state/runui/runs` | `$XDG_STATE_HOME/runui/runs` |
+
+The Rust and Go builds read and write the same formats. A favorite or run created in either build is visible in the other, including its stored output and stop control. Forty ended runs are kept across folders.
 
 ## Develop
 
-```bash
-task test      # every crate's tests, and clippy with warnings as errors
-task lint      # clippy and cargo fmt --check
-task run       # build and open it on the folder you're in
-task compare   # this build against the Go one in ~/dotfiles: runui list on edge cases and random
-               # mutations of every kind of project file, byte for byte, then both interfaces in tmux,
-               # cell by cell, and a run started by one stopped by the other
+```sh
+task build     # build bin/runui
+task run       # build and open runui in the current folder
+task test      # workspace tests and clippy
+task lint      # clippy and rustfmt checks
+task compare   # compare this build with the Go app, including the TUI
 ```
 
-`task compare` needs Go, tmux and Python 3; `GO_APPS=…` points it at another checkout of the dotfiles' `apps`, and `task compare -- SEED N` picks the random mutations' seed and how many of each kind.
+`task compare` uses Go, Python 3, and tmux; `GO_APPS` can point to another dotfiles checkout. Documentation captures can be regenerated with `python3 scripts/capture-docs.py` after `task build` (requires tmux and Pillow). The capture script uses a temporary home and project. Raster brand exports come from `python3 scripts/build-brand-assets.py` (requires Pillow and librsvg).
 
-The workspace is a crate per Go package, under `crates/`: `runui` (the binary, `cmd/runui`), `runui-tui`, `runui-project`, `runui-favorites`, `runui-runs`; `runui-core` for what Go's standard library does that runui's words and files depend on; and `runui-tea`, the terminal runtime, styles and widgets, the parts of Bubble Tea, Lip Gloss and Bubbles the interface uses, taken from [aemui](https://github.com/lechero/aemui)'s `aem-tea`. [AGENTS.md](AGENTS.md) has the rest.
+For the implementation layout, see [AGENTS.md](AGENTS.md). The [brand kit](docs/brand.html) contains the vector logo, icons, and social preview. License: [MIT](LICENSE).
