@@ -2,7 +2,7 @@
 
 Open [index.html](index.html) for the app guide, including [MCP agent tools](index.html#mcp), and [brand.html](brand.html) for the logo, icons, colors, and download links. Both pages are static HTML with no build step, JavaScript, external fonts, or network dependency.
 
-The media show the real Rust binary running against a disposable sample project. To regenerate them:
+The media show Runui running against a disposable sample project. To regenerate them:
 
 ```sh
 task build

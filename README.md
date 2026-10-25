@@ -1,18 +1,23 @@
-# runui
+# Runui
 
 <img src="docs/assets/runui-logo.svg" alt="runui logo: terminal prompt and cursor" width="292">
 
-**A terminal home for the commands in your project.** Run a Taskfile task, package script, Make target, Docker Compose service, Maven build, or a command of your own. Watch its output live, leave the terminal, and come back to the same run later.
-
-This is the Rust port of [runui in the dotfiles](https://github.com/lechero/dotfiles/tree/main/apps/cmd/runui). It keeps the Go app's commands, keys, interface, and on-disk formats. See [PLAN.md](PLAN.md) for the port and compatibility checks.
+**Your project's commands, ready to run.** Taskfile tasks, package scripts, Make targets, Compose services, and Maven builds are scattered across files. Runui gathers them in one terminal screen. Pick a command, watch its output, then close the interface whenever you like. The command keeps running, and its output is waiting when you return.
 
 ![runui tour: favorite, run, inspect, filter, stop](docs/assets/tour.gif)
 
-The captures use a disposable sample project and a separate home directory. [Open the illustrated guide](docs/index.html) for the full tour.
+[Explore the illustrated guide](docs/index.html) for the full tour.
 
 ## Install
 
-Requires Rust 1.88 or newer on macOS or Linux. From a clone:
+With Homebrew on macOS or Linux:
+
+```sh
+brew tap lechero/runui https://github.com/lechero/runui.git
+brew install lechero/runui/runui
+```
+
+This builds Runui from source and installs Rust as a build dependency. To build from a clone with Rust 1.88 or newer:
 
 ```sh
 task install
@@ -34,6 +39,7 @@ runui -C ~/projects/app  # open another project
 runui list              # print its favorites, commands, and runs
 runui ps                # print runs from all folders, live ones first
 runui status            # print counts for a terminal status line
+runui status clear      # dismiss finished counts, keeping runs and output
 runui mcp -C ~/projects/app  # serve tools to an MCP client over stdio
 ```
 
@@ -90,7 +96,7 @@ Each command runs in its own folder through `sh -c` (and through `mise exec` whe
 | Favorites | `~/.config/runui/favorites.json` | `$XDG_CONFIG_HOME/runui/favorites.json` |
 | Runs and output | `~/.local/state/runui/runs` | `$XDG_STATE_HOME/runui/runs` |
 
-The Rust and Go builds read and write the same formats. A favorite or run created in either build is visible in the other, including its stored output and stop control. Forty ended runs are kept across folders.
+Runui keeps up to forty ended runs across folders. Their output remains available until the run is forgotten or pruned.
 
 ### Status line
 
@@ -100,7 +106,7 @@ The Rust and Go builds read and write the same formats. A favorite or run create
 running=2 completed=1 errored=0
 ```
 
-Starting and active commands count as running. A command that exits with code 0 counts as completed; a nonzero exit, failed start, or lost supervisor counts as errored. Runs deliberately stopped with `s` are omitted. The counts cover all folders and include retained history, so the completed and errored values remain visible after a command ends. The tmux proof of concept in `~/dotfiles/dot_config/tmux/tmux.conf` renders these counts on the right side of the status line.
+Starting and active commands count as running. A command that exits with code 0 counts as completed; a nonzero exit, failed start, or lost supervisor counts as errored. Runs deliberately stopped with `s` are omitted. The counts cover all folders. Finished results stay counted until you focus their output pane in Runui (enter on a run, `0`, or click the pane), or run `runui status clear` to dismiss all finished counts. A run already in the focused pane is dismissed when it finishes. Dismissing a count keeps the run and its output; running counts always reflect active commands. The output is designed for tmux and other status bars, which can omit zero values.
 
 ## Use with an agent
 
@@ -115,9 +121,8 @@ task build     # build bin/runui
 task run       # build and open runui in the current folder
 task test      # workspace tests and clippy
 task lint      # clippy and rustfmt checks
-task compare   # compare this build with the Go app, including the TUI
 ```
 
-`task compare` uses Go, Python 3, and tmux; `GO_APPS` can point to another dotfiles checkout. Documentation captures can be regenerated with `python3 scripts/capture-docs.py` after `task build` (requires tmux and Pillow). The capture script uses a temporary home and project. Raster brand exports come from `python3 scripts/build-brand-assets.py` (requires Pillow and librsvg).
+The CI workflow checks tests, formatting, and Clippy on macOS and Linux. A `v*` tag runs the release workflow, which publishes archives for macOS and Linux. Documentation captures can be regenerated with `python3 scripts/capture-docs.py` after `task build` (requires tmux and Pillow). The capture script uses a temporary home and project. Raster brand exports come from `python3 scripts/build-brand-assets.py` (requires Pillow and librsvg).
 
 For the implementation layout, see [AGENTS.md](AGENTS.md). The [brand kit](docs/brand.html) contains the vector logo, icons, and social preview. License: [MIT](LICENSE).
