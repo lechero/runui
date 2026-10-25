@@ -1,7 +1,7 @@
 name: release
 
-# a v* tag builds runui for macOS and Linux and publishes the archives as
-# a GitHub release
+# A v* tag publishes macOS and Linux archives and pins the Homebrew formula
+# to that exact commit.
 on:
   push:
     tags: ["v*"]
@@ -22,6 +22,10 @@ jobs:
           - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu, name: linux_arm64 }
     steps:
       - uses: actions/checkout@v4
+      - name: Check release version
+        run: |
+          version=$(sed -n '/^\[workspace.package\]/,/^\[/{s/^version = "\([^"]*\)"/\1/p;}' Cargo.toml)
+          test "$GITHUB_REF_NAME" = "v$version"
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
@@ -50,7 +54,7 @@ jobs:
         with:
           merge-multiple: true
       - name: checksums
-        run: sha256sum *.tar.gz > checksums.txt
+        run: sha256sum ./*.tar.gz > checksums.txt
       - name: release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -59,4 +63,27 @@ jobs:
           case "$GITHUB_REF_NAME" in *-*) prerelease="--prerelease" ;; esac
           gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --generate-notes $prerelease \
             --notes "Take the archive for your system below and put \`runui\` on your PATH." \
-            *.tar.gz checksums.txt
+            ./*.tar.gz checksums.txt
+
+  homebrew:
+    name: update Homebrew formula
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Pin the release
+        run: |
+          python3 scripts/render-homebrew-formula.py "${GITHUB_REF_NAME#v}" "$GITHUB_SHA" "$GITHUB_REF_NAME" > Formula/runui.rb
+          ruby -c Formula/runui.rb
+      - name: Publish formula
+        run: |
+          if git diff --quiet -- Formula/runui.rb; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/runui.rb
+          git commit -m "chore: pin Homebrew formula to $GITHUB_REF_NAME"
+          git push origin HEAD:main
