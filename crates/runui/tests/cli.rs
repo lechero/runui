@@ -131,6 +131,9 @@ fn status_with_nothing_run() {
     let (code, out, err) = s.run(&["status"]);
     assert_eq!(code, EXIT_OK, "{err}");
     assert_eq!(out, "running=0 completed=0 errored=0\n");
+    let (code, out, err) = s.run(&["status", "tmux"]);
+    assert_eq!(code, EXIT_OK, "{err}");
+    assert_eq!(out, "\n");
 }
 
 #[test]
@@ -166,6 +169,9 @@ fn a_run_from_the_binary_outlives_it() {
     let (code, out, err) = s.run(&["status"]);
     assert_eq!(code, EXIT_OK, "{err}");
     assert_eq!(out, "running=1 completed=0 errored=0\n");
+    let (code, out, err) = s.run(&["status", "tmux"]);
+    assert_eq!(code, EXIT_OK, "{err}");
+    assert_eq!(out, " #[fg=#89b4fa]▶ 1#[default]\n");
     let (code, out, err) = s.run(&["status", "clear"]);
     assert_eq!(code, EXIT_OK, "{err}");
     assert_eq!(out, "running=1 completed=0 errored=0\n");
@@ -204,11 +210,17 @@ fn status_counts_successful_and_failed_runs() {
     let (code, out, err) = s.run(&["status"]);
     assert_eq!(code, EXIT_OK, "{err}");
     assert_eq!(out, "running=0 completed=1 errored=1\n");
+    let (code, out, err) = s.run(&["status", "tmux"]);
+    assert_eq!(code, EXIT_OK, "{err}");
+    assert_eq!(out, " #[fg=#a6e3a1]✓ 1 #[fg=#f38ba8]✗ 1#[default]\n");
 
     store.acknowledge(&ok).unwrap();
     let (code, out, err) = s.run(&["status"]);
     assert_eq!(code, EXIT_OK, "{err}");
     assert_eq!(out, "running=0 completed=0 errored=1\n");
+    let (code, out, err) = s.run(&["status", "tmux"]);
+    assert_eq!(code, EXIT_OK, "{err}");
+    assert_eq!(out, " #[fg=#f38ba8]✗ 1#[default]\n");
 
     let (code, out, err) = s.run(&["status", "clear"]);
     assert_eq!(code, EXIT_OK, "{err}");
