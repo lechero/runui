@@ -62,6 +62,7 @@ fn usage() {
     for args in [&["-h"][..], &["help"]] {
         let (code, out, _) = s.run(args);
         assert!(code == EXIT_OK && out.contains("Usage:"), "{args:?}: {code}, {out:?}");
+        assert!(out.contains("runui mcp [-C DIR]"), "{args:?}: {out:?}");
     }
     for args in [&["nope"][..], &["list", "extra"], &["-x"], &["_supervise"]] {
         let (code, _, err) = s.run(args);
