@@ -73,7 +73,7 @@ def compare(name, args, cwd=HOME):
     # These Rust-only commands are visible in help, while the Go CLI's
     # other bytes still compare exactly.
     mcp_line = b"  runui mcp [-C DIR]    serve project commands and runs to an MCP client over stdio\n"
-    status_line = b"  runui status          print running, completed and errored counts for tmux\n"
+    status_line = b"  runui status [clear]  print counts for tmux; clear finished counts\n"
     if b"Usage:\n" in g[1] + g[2]:
         normalized = (
             r[0],
