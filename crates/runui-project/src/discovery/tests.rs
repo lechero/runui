@@ -314,14 +314,33 @@ fn the_folder_budget_is_global_and_includes_the_root() {
 }
 
 #[test]
-fn the_depth_limit_is_visible_even_when_usable_commands_were_found() {
+fn incidental_depth_is_a_scope_notice_even_when_deeper_commands_exist() {
     let (_temp, dir) = temporary();
     write(&dir, "Makefile", "build:\n");
     write(&dir, "a/b/c/d/Makefile", "deep:\n");
     let discovery = discover(&dir, &dir);
     assert_eq!(command_names(&discovery), ["build"]);
+    assert!(discovery.complete(), "{:?}", discovery.diagnostics);
+    assert!(discovery.diagnostics.is_empty());
+    assert!(discovery.notices.iter().any(|notice| notice.message.contains("below depth 3")));
+    assert!(!discovery.changed());
+}
+
+#[test]
+fn declared_workspace_depth_truncation_is_still_incomplete() {
+    let (_temp, dir) = temporary();
+    write(&dir, "package.json", r#"{"workspaces":["**"]}"#);
+    let member = vec!["nested"; 65].join("/");
+    write(&dir, &format!("{member}/package.json"), r#"{"scripts":{"too-deep":"true"}}"#);
+    let discovery = discover(&dir, &dir);
     assert!(!discovery.complete());
-    assert!(discovery.diagnostics.iter().any(|problem| problem.message.contains("below depth 3")));
+    assert!(
+        discovery
+            .diagnostics
+            .iter()
+            .any(|problem| problem.message.contains("workspace") && problem.message.contains("depth 64"))
+    );
+    assert!(!command_names(&discovery).contains(&"too-deep"));
 }
 
 #[test]
