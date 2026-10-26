@@ -23,7 +23,9 @@ assert PHP and BIN.is_file() and PHAR.is_file(), 'Build runui and supply existin
 
 with tempfile.TemporaryDirectory(prefix='runui-native-composer-') as temporary:
     home = Path(temporary).resolve()
-    project = home / "project with 'quotes' and ☕"
+    # Deliberately match the alias query in the path too: fuzzy discovery may
+    # return weaker path hits, but the exact native alias must rank first once.
+    project = home / "verify project with 'quotes' and ☕"
     project.mkdir()
     (project / '.git').mkdir()
     tools = home / 'tools'
@@ -95,7 +97,8 @@ class Scripts {
     assert check['aliases']==['verify']
     assert all(tool['availability']=='on_path' for tool in check['requirements'])
     alias = cli('find','--json','source:composer verify')['commands']
-    assert [entry['id'] for entry in alias]==[check['id']]
+    assert alias and alias[0]['id']==check['id'],alias
+    assert sum(entry['id']==check['id'] for entry in alias)==1,alias
     hooks = cli('find','--json','source:composer kind:hook')['commands']
     assert [entry['name'] for entry in hooks]==['post-autoload-dump']
     assert not (project/'trace.jsonl').exists()

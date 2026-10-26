@@ -9,6 +9,8 @@ python3 -m http.server 8765 --bind 127.0.0.1
 
 The pages are static HTML and CSS with no JavaScript, external fonts, or build step. Videos have native play/pause controls, still posters, and no autoplay. GIFs are also available for GitHub and direct downloads.
 
+[CONTEXT.md](../CONTEXT.md) defines the shared terms. `scripts/probe-discovery.py` records the historical research baseline at `326b0c2`; use the implementation audit and native verification scripts for current behavior.
+
 ## What the guide covers
 
 - [Four panels](index.html#overview): Favorites, Project, Runs, and Log.

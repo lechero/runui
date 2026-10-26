@@ -1,123 +1,149 @@
-# Command discovery research
+# Command discovery and product completeness research
 
-Research date: 26 October 2026. Code inspected at `b96cb795370cb299ffe8f221f6d56fde53b640f9` on `main`.
+Updated 26 October 2026 against `main` at `326b0c2`. This extends the earlier research from `codex/command-discovery-research`; both of that branch's changes are already patch-equivalent on main. The two research documents were identical between that branch and current main before this update. The fresh worktree starts from main so it includes Log, result review, agent attribution, and the refreshed user guide.
 
-Runui should become the place to find, understand, and repeat a project's commands. The largest immediate gains are a search across sources, reliable workspace coverage, and better handling of command inputs. Its persistent supervisors, saved output, status display, and MCP tools already supply much of the execution foundation.
+The recommendation is a shared command catalog with one palette across sources and registered projects, accurate workspace discovery, Composer and Cargo support, and useful recall of the user's own commands. These belong in one bounded product release. Build on the existing supervisor, Log, tmux status, and MCP rather than replacing them.
 
-The confirmed priority is finding the right command faster across projects and monorepos. The recommended sequence is correctness, a shared catalog and palette, workspace discovery and registered-project search, selected additional sources, then richer execution and integrations. The [integration plan](command-discovery-plan.md) defines the changes and release gates.
+The confirmed first priority is finding the right command faster across projects and monorepos. Composer, Rust, and user command history are explicit requirements of this update. The [integration plan](command-discovery-plan.md) defines the release scope, implementation slices, and acceptance checks. It describes proposed behavior; these integrations are not shipped by this research PR. [CONTEXT.md](../CONTEXT.md) distinguishes definitions, invocations, runs, and the different kinds of history.
 
-## How command discovery works today
+## What works now, and where finding commands breaks down
 
-1. The CLI selects the nearest ancestor containing a supported project file, stopping at the Git repository or home boundary. Starting inside a package often selects that package, rather than the entire workspace.
-2. `runui-project::load` reads that folder and eligible descendants three levels below it. The scanner skips hidden and known generated directories and does not follow directory symlinks. It has folder and file limits, but returns no explicit completeness report.
-3. Five sources contribute commands: Taskfile, package scripts, Make, Compose, and Maven. Taskfile includes and Maven modules receive special handling. Package managers and Maven wrappers are resolved using parent folders.
-4. The TUI creates a tab for each source. `/` filters the current view using case-insensitive words found in names, folders, command lines, or descriptions. Name and folder matches precede description-only matches. This is useful substring search, without a search across every source tab.
-5. Favorites retain the command string and relative working directory. Runs retain the command, directory, shell, output, and outcome. Neither is a durable reference to a discovered command definition.
-6. Every two seconds, the TUI checks root project files and previously returned files for modification. Refresh does a new scan. Included Taskfiles removed from the returned file list and previously unseen nested files do not participate in that check.
-7. CLI `list`, the TUI, and MCP share the project parser, but each assembles its own presentation. MCP exposes exact command strings and directories; starting a run accepts an arbitrary shell string.
+| Area | Current Rust behavior | Consequence |
+| --- | --- | --- |
+| Entry points | Tmux popup in the active pane's directory; Neovim terminal float | Keep these quick entry points. No new desktop application is needed. |
+| Project context | Nearest ancestor with one of five supported project files, bounded by repository/home | A nested package becomes the selected project. Cargo and Composer manifests do not establish roots. |
+| Discovery | Taskfile, package scripts, Make, Compose, Maven; descendants three levels deep | Declared workspace membership is not the discovery rule. Unsupported sources are invisible. |
+| Search | `/` filters the current tab using case-insensitive words; name/folder matches precede description-only matches | Finding a command still requires knowing its source tab or project. There is no shared fuzzy palette. |
+| Identity | Command row identity uses folder plus rendered command; favorites save shell text and relative folder | Different origins can look identical. Source navigation and stable selection need richer identity. |
+| Refresh | Polls root manifests and previously returned files every two seconds; `r` rescans | Hidden included Taskfiles and newly created nested manifests can be absent from invalidation. |
+| Execution | One persistent supervisor per run; output retained; existing mise environment wrapper | Strong basis for launch, leave, return, and stop. Stdin is an open pipe, without terminal input forwarding or a PTY. |
+| Log and notices | Unread/All finished results; viewing a finished result marks it reviewed; zero status counts hidden | Already solves the earlier growing-notice problem. Preserve this behavior. Looking at a live process must not review its future result. |
+| Retention | The next start prunes ended runs to 40 previous results; live runs are retained | Saved output is bounded. It cannot also be the only long-term source of recent/frequent command ranking. |
+| CLI and MCP | Human-readable `list`; six MCP tools; raw-command start; bounded tail output | Parser sharing exists, but there is no shared catalog ID, filtered catalog API, or incremental output cursor. MCP output reads do not review results. |
 
-Relevant implementation: [discovery and roots](../crates/runui-project/src/lib.rs), [Taskfile includes](../crates/runui-project/src/taskfile.rs), [package manager selection](../crates/runui-project/src/npm.rs), [filtering](../crates/runui-tui/src/rows.rs), [refresh and source tabs](../crates/runui-tui/src/lib.rs), [CLI](../crates/runui/src/cli.rs), [MCP](../crates/runui/src/cli/mcp.rs), [favorites](../crates/runui-favorites/src/lib.rs), and [supervisor](../crates/runui-runs/src/supervise.rs).
+Implementation references: [roots, traversal and refresh](../crates/runui-project/src/lib.rs), [Taskfile includes](../crates/runui-project/src/taskfile.rs), [package manager selection](../crates/runui-project/src/npm.rs), [row filtering](../crates/runui-tui/src/rows.rs), [TUI](../crates/runui-tui/src/lib.rs), [CLI](../crates/runui/src/cli.rs), [MCP](../crates/runui/src/cli/mcp.rs), [run store and review](../crates/runui-runs/src/lib.rs), [supervisor](../crates/runui-runs/src/supervise.rs). Existing [user documentation](index.html) covers shipped behavior.
 
-## Fit with the existing workflow
+The configured workflow uses fish with fzf history search, tmux `Alt-X`, and Neovim `Space o x`. These are observations of configuration, not measurements of interaction frequency. Runui should connect command recall to a selected project, exact invocation, and saved output. Replacing a working Ctrl-R picker adds little by itself.
 
-The local dotfiles already bind tmux `Alt-X` to a runui popup rooted at the active pane's directory. Neovim `Space o x` opens it through Snacks terminal. The tmux status line polls saved run counts. Shell pickers already use fzf for history, files, commits, and processes.
+## Evidence and limits
 
-That makes a fast command palette, a deliberate package/workspace scope switch, and an insert-command action natural additions. Keep the existing popup and editor float as the primary entry points. Offer shell and editor integrations through structured output and command IDs before building a dedicated extension.
+### Local inventory
 
-These observations come from the local dotfiles' `dot_config/tmux/tmux.conf`, `dot_config/nvim/lua/fuentastic/plugins/snacks.lua`, and shell key configuration. They describe configured entry points; they do not measure how often each is used.
+The updated read-only sample used `rg --files --hidden` under `~/projects`, honoring ignore rules and excluding Git data, dependency folders, and common build output. Counts include examples, copies, and fixtures; top-level folders are not necessarily active repositories. This pass used specific filename globs, so it is not a complete census of every Taskfile/Just/Compose spelling. Do not compare its narrower source counts to the earlier pass as a trend.
 
-### Local project inventory
-
-A read-only inventory of `~/projects` found the following. It used `rg --files --hidden`, respected ignore rules, and excluded Git data, dependencies, and common generated directories. Top-level directories are not necessarily unique or active repositories; copies, examples, and fixtures can contribute. Counts are prioritization evidence, not usage statistics.
-
-| Manifest family | Files | Top-level directories containing it | Current coverage |
+| Selected manifests | Files | Top-level folders | What this establishes |
 | --- | ---: | ---: | --- |
-| `package.json` | 350 | 34 | Scripts supported |
-| Taskfile YAML | 85 | 37 | Supported subset and local includes |
-| Compose YAML | 193 | 20 | Common operations and per-service up |
-| Cargo | 67 | 6 | Unsupported |
-| Gradle | 83 | 6 | Unsupported |
-| Make | 22 | 4 | Static targets supported |
-| Python `pyproject.toml` | 13 | 4 | Unsupported |
-| Maven | 13 | 2 | Common goals and profiles |
-| mise TOML | 1 | 1 | Runtime environment support; no task discovery |
-| Just | 1 | 1 | Unsupported |
+| `package.json` | 350 | 34 | Existing package discovery remains central. |
+| `pnpm-workspace.yaml` | 46 | 26 | Workspace membership deserves first-class handling. |
+| `composer.json` | 20 | 3 | PHP support is useful in this user's projects. |
+| `Cargo.toml` | 67 | 6 | Rust is a substantial gap, including runui itself. |
+| `Taskfile.yml` / `Taskfile.yaml` | 54 / 26 | 31 / 7 | Existing sources must retain good coverage; folder counts overlap. |
+| `Makefile` | 22 | 4 | Keep existing static target discovery. |
+| `build.gradle` / `build.gradle.kts` | 80 / 3 | 6 / 1 | Gradle merits a later native-inspection spike. |
+| `pyproject.toml` | 13 | 4 | Python is a later source with environment-dependent entry points. |
+| `turbo.json` / `nx.json` | 29 / 5 | 11 / 4 | Enrich package entries rather than build another scheduler. |
 
-There were also 46 pnpm workspace manifests, 29 Turbo configurations, and five Nx configurations. Of 349 readable package manifests, 274 contained scripts, totaling 2,107 script entries. Fifty-nine package manifests lay more than three levels below their top-level project directory. This does not establish that every one contains a command runui should expose, but it makes the fixed depth a poor definition of workspace membership.
+Seven of the 20 Composer manifests declare scripts, totaling 18 script keys. Twelve values are arrays, and 12 keys match a pre/post event naming pattern; exact Composer event classification still requires its documented event set. This argues for delegating execution to Composer and distinguishing lifecycle hooks from deliberately named developer scripts. No descriptions or aliases were present in this sample. Seven manifests had Symfony dependencies, and none declared Laravel's framework package; that favors a Symfony inspection experiment before an Artisan integration if framework commands become necessary.
 
-Cargo is an especially useful first addition: runui itself is a Cargo workspace, but currently exposes its Taskfile rather than Cargo commands. Gradle deserves investigation early, although its dynamic configuration makes accurate discovery more involved. A single Just or mise manifest is not evidence to prioritize either above workspace improvements.
+The Cargo manifests include five workspaces and 63 package manifests, with overlap between categories. On this checkout, explicit `cargo metadata --no-deps --format-version 1 --offline --locked` succeeded: seven workspace members, one binary target, and six library targets.
 
-## Findings reproduced against the current code
+Composer's launcher exists in the inspection shell, but `composer --no-plugins --no-scripts --version` in a disposable directory failed because `php` was absent from that shell's PATH. This prevented local Composer execution validation. It does not establish PHP availability inside each project's mise environment. Availability must be checked in the selected execution context; do not install tools merely to list commands.
 
-Disposable Rust probes called the compiled public `runui-project` interface. The fixtures did not execute project commands.
+### History sample
 
-| Probe | Observed result | Implication |
+A bounded, local read found 6,343 stored fish command records in an approximately 842 KB file. All had `when`; some had `paths` and `added_when`; none had a working-directory field. These are stored records, not an execution-frequency measurement. Zsh and Bash history files also exist. Atuin was not found at the inspected executable/database locations.
+
+Only aggregate counts and metadata presence were retained for this research. No personal command text, project paths, credentials, or history database is included in this repository. Inventory and history observations are a snapshot of this machine, not portable runtime assumptions.
+
+### Reproduced against current main
+
+Run the committed probe from the checkout, with cached Cargo dependencies:
+
+```sh
+python3 -B scripts/probe-discovery.py
+# Optional: set CARGO_TARGET_DIR to reuse an existing temporary build cache.
+```
+
+It builds a temporary Rust caller of the public `runui-project` interface, creates its own fixtures, and prints observations. It does not execute fixture commands or access personal configuration/runs. It is a research probe, not a test that requires bugs to remain.
+
+| Fixture | Observed at `326b0c2` | Required change |
 | --- | --- | --- |
-| Cargo-only repository | No discovered commands | A supported language's manifest must also participate in root detection. |
-| pnpm member at `packages/a/b/c` | Only the root script appeared | Workspace membership is not read; the depth limit omits declared packages. |
-| Same Taskfile included as `one` and `two` | Only `one:build` appeared; no error | A global visited-file set conflates cycle detection with namespace expansion. |
-| Edit a hidden included Taskfile | `changed` stayed equal | Source dependencies need explicit refresh tracking. |
-| Add a nested `package.json` | `changed` stayed equal | New files need directory tracking or periodic bounded reconciliation. |
-| Package under a `.gitignore` entry | Its command appeared | The scanner uses its own exclusions rather than repository ignore rules. |
+| Cargo-only and Composer-only repositories, opened below their manifests | Neither selects the manifest root; no commands | Integrate roots and execution context as well as parsers. |
+| pnpm member at `packages/a/b/c` | Only the root script appears | Read declared membership beyond the incidental depth limit. |
+| Shared Taskfile under `one` and `two` | Only `one:build` appears | Separate cycle detection from namespace expansion. |
+| Edit hidden included Taskfile | `changed` unchanged; explicit reload reads the edit | Track all defining dependencies. |
+| Create nested `package.json` | `changed` unchanged; explicit reload finds it | Track directory changes or reconcile periodically. |
+| Package inside a `.gitignore` entry | Command is listed | Define ignore policy explicitly; some ignored local definitions are useful. |
 
-The installed Task executable confirmed the repeated-include expectation: `task --list-all --json` returned both `one:build` and `two:build` from the same fixture. `cargo metadata --no-deps --format-version 1 --offline --locked` also succeeded on this checkout, reporting seven workspace members and the `runui` binary target.
+The earlier research also checked the namespace fixture with Task's JSON listing, which returned both namespaces. Code inspection explains the present result: one global visited-file set suppresses a second namespace. Scan limits are also not a strict, globally enforced budget, and no completeness diagnostic reaches callers.
 
-The last behavior is a discovery policy decision, rather than necessarily a bug: some ignored local command files are useful. It needs an explicit rule with local overrides. The fixed scan limits likewise need diagnostics, rather than a silent appearance of complete coverage.
+## Composer: support scripts without reimplementing Composer
 
-Code inspection also found that command row identity is based on directory plus rendered shell command. This cannot distinguish every source origin. An included task's displayed source is the entry Taskfile, rather than necessarily its defining file. Both become more visible when adding a global palette and editor source navigation.
+Composer supports root-package script declarations as strings or arrays, executable commands and PHP callbacks, plus script references and helpers such as `@php` and `@composer`. Descriptions and aliases have dedicated metadata. Dependencies' script declarations are not scripts of the consuming root package. [Scripts](https://getcomposer.org/doc/articles/scripts.md), [schema](https://getcomposer.org/doc/04-schema.md#scripts).
 
-Baseline verification passed: 20 discovery tests, 17 TUI tests, eight CLI tests, and one MCP integration test, using `cargo test --locked --offline` for `runui-project`, `runui-tui`, and `runui`. Temporary build output was outside the checkout. Existing tests cover many compatibility cases, but do not cover the reproduced include and refresh gaps.
+Recommended first integration:
 
-## What to learn from other tools
+- Parse the selected `composer.json` passively, including `scripts`, `scripts-descriptions`, and `scripts-aliases`. Do not sweep `vendor`. A nested root manifest remains a separate project context.
+- Offer ordinary scripts in default results; put actual Composer lifecycle events behind a hook facet or explicit hook view. Do not classify every arbitrary `pre-*` name as a lifecycle event.
+- Prepare `composer run-script SCRIPT -- ARGS`, quoting each value and preserving the script's native key. Let Composer handle arrays, callbacks, references, and its version-specific argument behavior. Alias labels resolve to the canonical script, avoiding duplicate ranking.
+- Show the effective manifest, directory, Composer/PHP availability, and exact invocation. Support a nondefault manifest only through explicit context; do not apply an unrelated ambient `COMPOSER` value to every indexed repository.
 
-The integration choices below are recommendations for runui, distinguished from the documented capabilities they draw on.
+Composer's CLI can list scripts and vendor executables. Treat vendor tools as optional enrichment, not inferred scripts; honor configured binary directories. Its process timeout can affect long-running scripts: make an explicit timeout choice available later rather than silently overriding the project's policy. [CLI](https://getcomposer.org/doc/03-cli.md#run-script-run), [timeout configuration](https://getcomposer.org/doc/06-config.md#process-timeout).
 
-| Area | Documented capability | Implication for runui |
-| --- | --- | --- |
-| Task | JSON listings include task details and locations. Variables may run shell commands during evaluation. [CLI](https://taskfile.dev/docs/reference/cli), [variables](https://taskfile.dev/docs/guide/variables) | Retain static discovery for fast browsing. Offer native metadata explicitly when it is needed for dynamic includes, locations, and inputs. |
-| pnpm | Workspace configuration defines member patterns and exclusions, including nested members. [Settings](https://pnpm.io/settings#packages) | Read declared membership before falling back to a bounded folder scan. |
-| Cargo | Versioned JSON metadata exposes workspace members and targets; `--no-deps` avoids fetching dependencies. Members, exclusions, and default members have defined semantics. [Metadata](https://doc.rust-lang.org/cargo/commands/cargo-metadata.html), [workspaces](https://doc.rust-lang.org/cargo/reference/workspaces.html) | Add workspace and package build/check/test actions; only offer runnable targets where targets support them. Use installed-tool metadata as an optional enrichment path. |
-| Gradle | `tasks --all` reports tasks; fully qualified task paths identify subprojects. Wrapper invocation is encouraged. [CLI](https://docs.gradle.org/current/userguide/gradle_command_line.html), [basics](https://docs.gradle.org/current/userguide/command_line_interface_basics.html) | Discover through the installed wrapper in an explicit inspection step. Parsing Groovy or Kotlin with regular expressions cannot reliably reconstruct plugin-defined tasks. |
-| mise | `mise tasks ls --json` exposes task metadata, including inherited and global tasks. Config evaluation can have side effects despite a command's read-only label. [Listing](https://mise.jdx.dev/cli/tasks/ls.html), [CLI semantics](https://mise.jdx.dev/cli/) | Label local, inherited, and global origins; show project tasks by default. Existing `mise exec` support does not supply task discovery. |
-| Just | Recipes have parameters, defaults, namespaces, and JSON dump metadata. [Parameters](https://just.systems/man/en/recipe-parameters.html), [listing](https://just.systems/man/en/listing-available-recipes.html), [metadata](https://just.systems/man/en/metadata.html) | Prefer its own parser for complete recipe information. Add it after the catalog and input model, rather than introducing another partial language parser. |
-| Turbo | Dry JSON output reports tasks, packages, commands, and dependencies. [Run](https://turborepo.dev/docs/reference/run#--dry--dry-run) | Enrich package scripts with graph information; keep Turbo responsible for its cache and scheduling. |
-| Nx | `show project --json` reports resolved configuration, including inferred configuration through the show commands. [CLI](https://nx.dev/docs/reference/nx-commands#nx-show) | Native metadata matters for inferred targets. Avoid presenting a root script and its underlying target as unrelated duplicates. |
-| Python and uv | `[project.scripts]` values are Python object references. With appropriate package configuration, uv runs their installed entry point names. [Specification](https://packaging.python.org/en/latest/specifications/pyproject-toml/), [uv configuration](https://docs.astral.sh/uv/concepts/projects/config/) | Never execute `module:function` as a shell command. Detect the execution environment and distinguish entry points from development tasks. |
-| Deno | `deno.json` and JSONC task declarations map to `deno task`; tasks may carry descriptions. [Task reference](https://docs.deno.com/runtime/reference/cli/task/) | A relatively small later source, but absent from this inventory and lower priority. |
-| fzf | A shared searchable list can support previews, shell insertion, and tmux presentation. [Project documentation](https://github.com/junegunn/fzf#usage) | Borrow the interaction pattern. Keep the palette available without requiring fzf; expose structured data for external pickers. |
-| VS Code | Tasks support shell/process execution, inputs, dependencies, and background behavior. [Tasks](https://code.visualstudio.com/docs/debugtest/tasks) | Consider a limited import/export later. Variable substitution and extension task types need explicit handling. |
-| Process Compose | Dependencies, readiness, recovery policies, and process lifecycle are first-class concerns. [Lifecycle](https://f1bonacc1.github.io/process-compose/launcher/) | Use this as a reference for service groups. Starting several detached processes is insufficient to claim durable workflow support. |
-| Compose | Profiles select subsets of services, and explicitly targeting a service has its own activation rules. [Profiles](https://docs.docker.com/compose/how-tos/profiles/) | Add profile-aware actions without replacing Compose dependency or lifecycle semantics. |
-| GNU Make | Makefile reading can immediately evaluate shell expressions and assignments. [Reading Makefiles](https://www.gnu.org/s/make/manual/html_node/Reading-Makefiles.html) | Do not treat `make -n` or database output as a guaranteed passive discovery mechanism. |
-| MCP | Tool interfaces support schemas and structured output, and distinguish execution errors in tool results. [Tools specification](https://modelcontextprotocol.io/specification/2025-11-25/server/tools) | Add IDs, validation, and bounded output to the existing tools; keep discovery metadata separate from tool authorization. |
+Native inspection is distinct from passive parsing: Composer commands can load plugins and dispatch events. Use installed tools with `--no-plugins --no-scripts` for an explicit metadata check, and test the supported versions. This does not justify requiring confirmation for ordinary file browsing. [Composer's execution model](https://getcomposer.org/doc/faqs/how-to-install-untrusted-packages-safely.md).
 
-Native metadata improves accuracy, but listing and dry-run commands can evaluate project configuration, load plugins, write caches, or cause tool provisioning. Runui should make ordinary file discovery passive and make native inspection a deliberate, bounded action using installed tools. It should never silently install a missing tool to populate a list.
+Framework commands such as Symfony Console or Artisan are a separate adapter: listing may boot application code and configuration. First ship Composer scripts, then timebox an installed-framework inspection spike when demand warrants it. [Symfony Console](https://symfony.com/doc/current/console.html), [Artisan](https://laravel.com/framework/docs/12.x/artisan).
 
-## Priority decisions
+## Rust: packages, workspaces, aliases, and actual runnable targets
 
-| Priority | Change | Expected benefit | Main complexity |
+Cargo workspace membership, exclusions, and default members affect what a root invocation selects. Do not make every generated action implicitly use `--workspace`. Distinguish workspace actions from package actions and explain the selected package set. [Workspaces](https://doc.rust-lang.org/cargo/reference/workspaces.html).
+
+Use passive TOML discovery as the available-without-tools baseline, marking uncertain target inference as partial. Optional explicit metadata enrichment should use versioned JSON, for example `cargo metadata --format-version 1 --no-deps --offline --locked`. `--no-deps` alone is not a network prohibition; offline/locked inspection can fail without the needed cache or lockfile. Keep useful static results. Toolchain shims may also provision before Cargo starts, so native inspection needs an installed-toolchain policy. Cargo package IDs are opaque. [Metadata](https://doc.rust-lang.org/cargo/commands/cargo-metadata.html).
+
+Generate build/check/test actions for selected packages and the workspace, with a visible generated-action label. Offer run actions only for binary targets and runnable examples, including feature requirements and `default-run` semantics. A library-only package has no generic run action; an example can itself be a library. Keep test and benchmark target selectors distinct. [Targets](https://doc.rust-lang.org/cargo/reference/cargo-targets.html), [run](https://doc.rust-lang.org/cargo/commands/cargo-run.html).
+
+Preparation must distinguish Cargo flags from arguments passed after `--` to the binary. The process directory is part of the invocation: using `--manifest-path` alone does not change the program's runtime cwd. Use subprocess cwd rather than Cargo's nightly-only `-C` option. Track `Cargo.toml`, workspace members, lockfile, applicable `.cargo/config[.toml]`, and toolchain files for refresh.
+
+Cargo aliases can be strings, arrays, or shell aliases; configuration is hierarchical and relative to invocation context. A workspace-root invocation does not load each member's local configuration. Discover declared aliases with provenance and delegate expansion to Cargo; global aliases require an explicit scope rather than appearing in every project. [Configuration](https://doc.rust-lang.org/cargo/reference/config.html#alias).
+
+## History: three related features, three different meanings
+
+| Feature | Source of truth | Purpose | What it must not imply |
 | --- | --- | --- | --- |
-| First | Include correctness, dependency tracking, completeness diagnostics | Commands appear consistently and edits are reflected | Correct namespace expansion and complete dependency invalidation |
-| First | Palette across sources with provenance and exact execution preview | Find a command without remembering its owner | Identity, ranking, focus and key compatibility |
-| First | Package/workspace scope and pnpm/npm workspace membership | Monorepo coverage matches project structure | Exclusions, nested repositories, refresh, scan budgets |
-| First | Project picker and search across registered projects | Find commands across repositories without changing terminal context | Project identity, bounded indexing, stale results, correct execution directory |
-| Next | Cargo, then a Gradle inspection spike | Fill gaps demonstrated by the inventory | Target semantics and dynamic configuration |
-| Next | Inputs, presets, and launch by ID | Repeat useful variations without editing favorites | Quoting, provider-specific argument rules, stale definitions |
-| Next | CLI and MCP parity; shell insertion | Use the same command from a popup, terminal, or agent | Stable schemas and bounded output |
-| Later | mise, Just, Python task tools; Turbo/Nx enrichment | Broader accurate discovery | Native-tool versions, inheritance, provider semantics |
-| Later | Output search, URL actions, live-run reuse | Less navigation after launch | Ownership and reliable association |
-| Separate milestone | Durable groups, readiness, terminal input | Support complete development environments | Persistent coordination and terminal ownership |
+| Log | Existing supervised runs, output, result review state | Check results, clear notices, revisit retained attempts | Reviewing a result is not launching it again. |
+| Runui usage history | Successful launch records through TUI/CLI/MCP, with command identity when known | Recent/frequent choices, repeat, save a variation | Pruning output must not erase all command recall. |
+| Shell recall | Opt-in, read-only shell/history-tool records | Find commands never launched through runui, insert/edit, promote to favorite | Missing cwd, outcome, or dialect is not known project context. |
 
-The user confirmed discovery across projects and monorepos as the first concern. Project switching and registered-project search therefore belong in the discovery release, ahead of inputs, presets, and workflow orchestration. Validate discovery on a few active repositories before committing to the long tail of sources.
+Fish's history backend is nearly-valid YAML, not an arbitrary YAML document. Its `paths` records are required argument paths, not the command's cwd. Preserve multiline and escaping rules and tolerate interrupted appends. The shell's own history command offers bounded, NUL-separated search, but choosing a native-shell reader also requires checking startup/configuration effects and metadata loss. [Fish history](https://fishshell.com/docs/current/cmds/history.html), [backend source](https://raw.githubusercontent.com/fish-shell/fish-shell/master/src/history/yaml_backend.rs).
 
-## Scope to defer
+Zsh extended history can contain time and duration, but no cwd. Bash timestamps can delimit multiline entries; without them, reconstructing boundaries can be ambiguous. Plain line splitting is not a portable importer. Preserve unknown fields and formats rather than inventing precision. [Zsh history options](https://zsh.sourceforge.io/Doc/Release/Options.html#History), [Bash history](https://tiswww.case.edu/php/chet/bash/bashref.html#Bash-History-Facilities).
 
-Do not mine shell history or README snippets into executable commands automatically. Offer an explicit import or save action later if useful. Do not introduce an AI inference dependency for basic discovery. Do not build a remote execution service, a general plugin ABI, a new build cache, or a replacement dependency scheduler.
+Atuin already captures richer directory/outcome context and provides directory/exit filters. Its `history list` supports NUL-terminated records and format fields. A later adapter should capability-check the installed version and verify a lossless field transport; NUL record separation does not make a tab-separated field format unambiguous. Do not couple the basic feature to Atuin installation, sync, or a private database schema. [Search](https://docs.atuin.sh/main/reference/search/), [list](https://docs.atuin.sh/main/reference/list/).
 
-Native terminal interaction needs a separate design: the current supervisor redirects output to a file and holds stdin open without forwarding user input. A log pane cannot become a terminal merely by passing more key presses. Likewise, groups need coordination that survives closing runui; a TUI-owned sequence would violate its central behavior.
+Recommended behavior: runui recent choices participate in ordinary palette ranking; personal shell recall is a separate opt-in mode. Default shell-entry action inserts into a matching shell for editing, or copies when no integration is present. Show unknown cwd explicitly and require a chosen cwd for supervised replay. Preserve fish/zsh/bash syntax; never translate it silently to the supervisor's current `sh -c` invocation. Optional future capture hooks can record cwd and outcomes for new entries; they cannot reconstruct old context reliably.
 
-## Active implementation and stored data
+Keep imported shell entries local and outside MCP command enumeration by default. Explicitly saving a command promotes it into the existing shared favorites/catalog behavior. Do not persist a second raw history corpus merely to rank results, merge commands across different directories/dialects, or treat hover/review as usage. Render history text safely as text rather than terminal control sequences.
 
-Rust is the only active implementation. The user confirmed that discovery improvements and TUI changes should be developed and validated in Rust; maintaining or comparing against the retired Go build is not required. [PLAN.md](../PLAN.md) remains a historical account of the original port.
+## Other integrations and scope decisions
 
-Preserve existing Rust favorites, run metadata, logs, and supervisor handoff behavior. Extra catalog metadata can use separate versioned state; changes to existing saved data require deliberate compatibility handling or migration. Validate changes with Rust regression tests and isolated Rust TUI checks.
+| Tool or area | Relevant documented behavior | Recommended place |
+| --- | --- | --- |
+| Task / Make | Task variables and Makefile evaluation can run commands. [Task variables](https://taskfile.dev/docs/guide/variables), [Make](https://www.gnu.org/s/make/manual/html_node/Reading-Makefiles.html) | Fix passive parsing/refresh first. Native listings are explicit enrichment. |
+| pnpm | Membership patterns and exclusions define workspace packages. [Settings](https://pnpm.io/settings#packages) | First-release workspace discovery, including deep declared members. |
+| mise | JSON task listing includes origin/inheritance; environment activation is separate. [Listing](https://mise.jdx.dev/cli/tasks/ls.html) | Later task adapter; preserve current environment wrapper now. |
+| Just | Recipes have parameters, modules, and metadata. [Parameters](https://just.systems/man/en/recipe-parameters.html), [metadata](https://just.systems/man/en/metadata.html) | Prefer versioned native metadata over a partial language parser. |
+| Gradle | Qualified task paths and task listings; wrapper-based configuration can evaluate code. [CLI](https://docs.gradle.org/current/userguide/gradle_command_line.html) | Timeboxed native-inspection spike after the requested sources. |
+| Python / uv | Console scripts refer to Python objects, not shell commands. [Specification](https://packaging.python.org/en/latest/specifications/pyproject-toml/), [uv](https://docs.astral.sh/uv/concepts/projects/config/) | Environment-aware entry points; named task tools only when present. |
+| Turbo / Nx | Native metadata describes graphs and resolved targets. [Turbo](https://turborepo.dev/docs/reference/run#--dry--dry-run), [Nx](https://nx.dev/docs/reference/nx-commands#nx-show) | Enrich existing package rows; delegate caching and scheduling. |
+| Deno / editor tasks | Declared tasks and richer input/extension semantics. [Deno](https://docs.deno.com/runtime/reference/cli/task/), [VS Code](https://code.visualstudio.com/docs/debugtest/tasks) | Later adapters with explicit supported subsets. |
+| fzf | Searchable candidates, previews, shell/tmux integration. [Documentation](https://github.com/junegunn/fzf#usage) | Borrow interaction patterns and expose a structured picker API. Keep runui's palette independent of fzf. |
+| MCP | Schemas, structured tool results, and errors. [Tools](https://modelcontextprotocol.io/specification/2025-11-25/server/tools) | Same catalog IDs and preparation as TUI/CLI; preserve existing clients. |
+| Service groups | Readiness, dependencies, and recovery are lifecycle concerns. [Process Compose](https://f1bonacc1.github.io/process-compose/launcher/), [Compose profiles](https://docs.docker.com/compose/how-tos/profiles/) | Explicit later scope. A group coordinator must survive closing the TUI. |
+
+“Complete” should mean a reliable find → understand → prepare → run → return → review → repeat journey across the requested sources and projects. It should not mean every build tool, an AI dependency, remote execution, a plugin ABI, or a replacement scheduler. Interactive commands need an honest external-terminal handoff in the first release; persistent PTY attachment and durable groups need separate designs.
+
+## Validation status
+
+The seven current-main fixture observations above were rerun with the committed probe. Native Cargo metadata was verified locally; native Composer execution remains unverified because the inspection shell lacks PHP. Personal shell text was inspected only for local aggregate metadata and was not executed. No search-latency benchmark or user-task timing study was performed; the plan's performance numbers are proposed targets.
+
+Run the repository's Rust tests and lint checks for this PR, and convert each changed behavior into a focused Rust regression during implementation. The final check results are recorded in the PR. Go is retired: [PLAN.md](../PLAN.md) remains historical, and neither restoring Go nor running comparisons is a release requirement. Preserve existing Rust favorites, run metadata, output, agent attribution, and supervisor handoff; add versioned state alongside them.
