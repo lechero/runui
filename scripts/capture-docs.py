@@ -522,21 +522,57 @@ def capture_agents() -> None:
     tour.save("agents-tour")
 
 
+def capture_composer() -> None:
+    tour = Tour()
+    with demo() as session:
+        (session.app / "composer.json").write_text(json.dumps({
+            "scripts": {"check": ["@php tests/check.php", "@lint"],
+                        "lint": "@php tools/lint.php",
+                        "post-install-cmd": "@php tools/setup.php"},
+            "scripts-descriptions": {"check": "Run the PHP checks and linter"},
+            "scripts-aliases": {"check": ["verify"]},
+        }, indent=2))
+        session.start()
+        session.key("C-p")
+        session.tmux("send-keys", "-l", "-t", session.target, "source:composer verify")
+        session.wait("aliases: verify")
+        session.wait("php:")
+        session.expect_status(0, 0, 0)
+        session.shot("composer", "runui · Composer: find a canonical script by its alias")
+        tour.frame(session, "1 / Search an alias; Composer keeps its arrays and helpers", 2200)
+        session.key("C-u")
+        session.tmux("send-keys", "-l", "-t", session.target, "source:composer kind:hook")
+        session.wait("Lifecycle hook")
+        tour.frame(session, "2 / Discover lifecycle hooks explicitly with kind:hook", 2200)
+        session.key("M-i")
+        session.wait("unavailable or unsupported")
+        session.expect_status(0, 0, 0)
+        assert not list((session.home / "state/runui/runs").glob("*/run.json"))
+        tour.frame(session, "3 / Check tool readiness explicitly; no run or unread notice is created", 2600)
+    tour.save("composer-tour")
+
+
 def main() -> None:
     global BIN
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--binary", type=Path, default=BIN, help="Rust binary to capture (default: bin/runui)")
-    BIN = parser.parse_args().binary.expanduser().resolve()
+    parser.add_argument("--only", choices=["composer"], help="Refresh one focused tour")
+    args = parser.parse_args()
+    BIN = args.binary.expanduser().resolve()
     if not BIN.is_file():
         raise SystemExit("Build first with `task build`, or pass --binary /path/to/runui.")
     for name in ("tmux", "task", "ffmpeg"):
         if shutil.which(name) is None:
             raise SystemExit(f"Install {name} to regenerate the complete media set.")
     OUT.mkdir(parents=True, exist_ok=True)
+    if args.only == "composer":
+        capture_composer()
+        return
     capture_tour()
     capture_log()
     capture_agents()
-    print("Captured all screenshots, 3 GIFs and 3 videos using isolated real runs.", flush=True)
+    capture_composer()
+    print("Captured all screenshots, 4 GIFs and 4 videos using isolated real runs.", flush=True)
 
 
 if __name__ == "__main__":

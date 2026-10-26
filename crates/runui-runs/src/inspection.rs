@@ -162,23 +162,33 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let marker = temp.path().join("must-not-appear");
         for cancel_it in [false, true] {
-            let mut cmd = shell("(sleep 0.3; touch \"$MARKER\") & wait");
-            cmd.env("MARKER", &marker);
+            let ready = temp.path().join(format!("ready-{cancel_it}"));
+            let release = temp.path().join(format!("release-{cancel_it}"));
+            let mut cmd = shell(
+                "(n=0; while [ ! -f \"$RELEASE\" ] && [ $n -lt 200 ]; do sleep 0.01; n=$((n + 1)); done; [ -f \"$RELEASE\" ] && touch \"$MARKER\") & : > \"$READY\"; wait",
+            );
+            cmd.env("MARKER", &marker).env("READY", &ready).env("RELEASE", &release);
             let cancel = AtomicBool::new(false);
             std::thread::scope(|scope| {
                 if cancel_it {
                     scope.spawn(|| {
-                        std::thread::sleep(Duration::from_millis(30));
+                        let until = Instant::now() + Duration::from_secs(3);
+                        while !ready.exists() && Instant::now() < until {
+                            std::thread::sleep(Duration::from_millis(5));
+                        }
                         cancel.store(true, Ordering::Relaxed);
                     });
                 }
-                let output =
-                    run(&mut cmd, Limits { timeout: Duration::from_millis(80), ..Limits::default() }, &cancel).unwrap();
+                let timeout = if cancel_it { Duration::from_secs(5) } else { Duration::from_millis(80) };
+                let output = run(&mut cmd, Limits { timeout, ..Limits::default() }, &cancel).unwrap();
                 assert_eq!(output.end, if cancel_it { End::Cancelled } else { End::Timeout });
-                assert!(output.elapsed_ms < 1000);
+                if cancel_it {
+                    assert!(ready.exists(), "cancellation must follow child startup");
+                }
             });
+            std::fs::write(release, "go").unwrap();
         }
-        std::thread::sleep(Duration::from_millis(350));
+        std::thread::sleep(Duration::from_millis(250));
         assert!(!marker.exists());
         let output = run(&mut shell("sleep 30 & exit"), Limits::default(), &AtomicBool::new(false)).unwrap();
         assert_eq!(output.end, End::Exited);

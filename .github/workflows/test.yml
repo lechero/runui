@@ -40,6 +40,7 @@ jobs:
     name: native Composer ${{ matrix.composer.version }}
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         composer:
           - version: 2.2.30

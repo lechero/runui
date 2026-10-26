@@ -76,7 +76,8 @@ class Scripts {
         'name':'runui/disposable-composer-check', 'version':'1.0.0',
         'autoload':{'classmap':['Scripts.php'],'files':['autoload-marker.php']},
         'scripts':{'leaf':'@php echo.php leaf',
-                   'check':['@leaf','Fixture\\Scripts::check','@composer --version'],
+                   'check':['@leaf','Fixture\\Scripts::check'],
+                   'composer-version':'@composer --version',
                    odd_name:'@php echo.php odd', 'pre-deploy':'@php echo.php custom',
                    'post-autoload-dump':'@php echo.php hook'},
         'scripts-descriptions':{'check':'Array, callback and native helpers'},
@@ -125,21 +126,35 @@ class Scripts {
             assert time.monotonic()<until,('run did not end',metadata)
             time.sleep(.03)
 
-    def launch(entry,args=(),timeout=None):
+    def launch(entry,args=(),timeout=None,expected=0):
         command = ['run','--json','--fingerprint',entry['fingerprint']]
         if timeout is not None: command += ['--timeout',str(timeout)]
         started = cli(*command,entry['id'],'--',*args)
-        text,metadata = ended(started)
+        text,metadata = ended(started,expected)
         return started,text,metadata
 
     arguments = ['--literal-flag','space here',"'\"$();`touch NEVER`",'', 'line\nbreak','☕']
-    _,text,_ = launch(check,arguments,timeout=0)
-    assert 'Composer version' in text
+    direct = subprocess.run([PHP,str(PHAR),'run-script','--timeout=0','--','check',*arguments],
+                            cwd=project,env=configured,text=True,capture_output=True,timeout=30)
+    assert direct.returncode==0,(direct.stdout,direct.stderr)
+    expected_trace = (project/'trace.jsonl').read_text()
+    (project/'trace.jsonl').unlink()
+    launch(check,arguments,timeout=0)
+    assert (project/'trace.jsonl').read_text()==expected_trace, 'runui diverged from native Composer argument forwarding'
     trace = [json.loads(line) for line in (project/'trace.jsonl').read_text().splitlines()]
     assert [event['kind'] for event in trace]==['leaf','callback'],trace
     assert all(event['args']==arguments and event['cwd']==str(project) for event in trace),trace
     assert all(event['manifest']==str(project/'composer.json') for event in trace)
     assert not (project/'NEVER').exists()
+    # @composer is a native command helper, not an argument-echo script.
+    # Exercise it independently so options forwarded to --version do not
+    # conflate its own parser with PHP callback/argument round trips.
+    composer_version = next(entry for entry in entries if entry['name']=='composer-version')
+    _,text,_ = launch(composer_version)
+    assert 'Composer version' in text,text
+    direct_helper = subprocess.run([PHP,str(PHAR),'run-script','--','composer-version',*arguments],
+                                   cwd=project,env=configured,text=True,capture_output=True,timeout=30)
+    launch(composer_version,arguments,expected=direct_helper.returncode)
     odd = next(entry for entry in entries if entry['name']==odd_name)
     launch(odd,arguments)
     assert json.loads((project/'trace.jsonl').read_text().splitlines()[-1])['args']==arguments
