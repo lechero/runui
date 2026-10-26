@@ -17,3 +17,7 @@ The capture script also needs `tmux`. It creates a temporary home, project files
 ```sh
 python3 scripts/build-brand-assets.py
 ```
+
+## Command discovery roadmap
+
+The [command discovery research](command-discovery-research.md) reviews the current implementation, local project inventory, reproduced gaps, and relevant tools. The [integration plan](command-discovery-plan.md) proposes the catalog, palette, workspace support, additional sources, and execution integrations in staged milestones.

@@ -1,8 +1,10 @@
 # Porting runui to Rust
 
+This is the historical porting record. Rust is now the only active implementation; new changes are developed and validated in Rust, without a Go parity requirement.
+
 `runui` here is a full port of the Go runui in the dotfiles (`apps/cmd/runui` and `apps/internal/runui`: ≈4,200 lines and ≈1,850 lines of tests) to Rust: the same binary, `runui`, with the same commands, flags, output, interface, keys and files on disk. Someone switching from the Go build notices nothing.
 
-The Go source is the specification. The port follows [aemui](https://github.com/lechero/aemui)'s rules for aem-cli: the same behaviour and the same words, byte for byte; Go's libraries ported where runui's words depend on them.
+During the original port, the Go source was the specification. The port followed [aemui](https://github.com/lechero/aemui)'s rules for aem-cli: the same behaviour and the same words, byte for byte; Go's libraries ported where runui's words depend on them.
 
 ## Layout
 
