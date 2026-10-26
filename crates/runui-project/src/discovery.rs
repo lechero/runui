@@ -37,6 +37,8 @@ impl Diagnostic {
 pub struct Discovery {
     pub files: Vec<File>,
     pub diagnostics: Vec<Diagnostic>,
+    /// Informational policy decisions do not imply incomplete discovery.
+    pub notices: Vec<Diagnostic>,
     dependencies: BTreeMap<String, Option<Stamp>>,
 }
 
@@ -92,6 +94,8 @@ pub(crate) struct Scan {
     attempted: HashSet<String>,
     contents: HashMap<String, Arc<[u8]>>,
     pub(crate) diagnostics: Vec<Diagnostic>,
+    notices: Vec<Diagnostic>,
+    visited_folders: HashSet<String>,
     expansions: HashMap<Source, usize>,
     current_dependencies: Option<HashSet<String>>,
 }
@@ -104,6 +108,8 @@ impl Scan {
             attempted: HashSet::new(),
             contents: HashMap::new(),
             diagnostics: Vec::new(),
+            notices: Vec::new(),
+            visited_folders: HashSet::new(),
             expansions: HashMap::new(),
             current_dependencies: None,
         }
@@ -152,6 +158,24 @@ impl Scan {
         }
     }
 
+    pub(crate) fn notice(&mut self, path: &str, message: impl Into<String>) {
+        let notice = Diagnostic { source: None, path: path.into(), message: message.into() };
+        if !self.notices.contains(&notice) {
+            self.notices.push(notice);
+        }
+    }
+
+    fn enter_folder(&mut self, path: &str) -> bool {
+        if !self.visited_folders.contains(path) && self.visited_folders.len() >= MAX_FOLDERS {
+            self.problem(None, &self.root.clone(), format!("discovery stopped at the {MAX_FOLDERS}-folder limit"));
+            return false;
+        }
+        self.visited_folders.insert(path.into());
+        self.watch(path);
+        self.watch(&filepath::join(&[path, ".git"]));
+        true
+    }
+
     pub(crate) fn expand(&mut self, source: Source, path: &str) -> bool {
         let count = self.expansions.entry(source).or_default();
         if *count == 1000 {
@@ -193,12 +217,28 @@ pub fn discover(dir: &str, stop: &str) -> Discovery {
     let mut scan = Scan::new(&dir);
     scan.watch(&dir);
     scan.watch(&filepath::join(&[stop, ".git"]));
+    let members = crate::workspace::declaration(&dir, &mut scan);
+    let mut ignores = crate::workspace::IgnoreRules::new(stop, &mut scan);
     let deep = has_project_file(&dir) || crate::exists(&filepath::join(&[stop, ".git"]));
-    let folders = folders(&dir, deep, &mut scan);
+    let mut folders = if let Some(members) = &members {
+        crate::workspace::watch_missing_prefixes(&dir, members, &mut scan);
+        folders(&dir, true, Some(members), true, &mut ignores, &mut scan)
+    } else {
+        Vec::new()
+    };
+    folders.extend(self::folders(&dir, deep, members.as_ref(), false, &mut ignores, &mut scan));
+    folders.sort_by(|a, b| a.rel.cmp(&b.rel));
+    folders.dedup_by(|a, b| a.path == b.path);
     let mut files = Vec::new();
     let mut included = HashSet::new();
     for folder in folders {
         for (source, path, label) in candidates(&folder) {
+            if let Some(members) = &members
+                && !folder.rel.is_empty()
+                && (members.excluded(&folder.rel) || (source == Source::Npm && !members.contains(&folder.rel)))
+            {
+                continue;
+            }
             if source == Source::Taskfile && included.contains(&identity(&path)) {
                 continue;
             }
@@ -230,7 +270,7 @@ pub fn discover(dir: &str, stop: &str) -> Discovery {
         }
     }
     files.retain(|f| !(f.source == Source::Taskfile && included.contains(&identity(&f.path))));
-    Discovery { files, diagnostics: scan.diagnostics, dependencies: scan.dependencies }
+    Discovery { files, diagnostics: scan.diagnostics, notices: scan.notices, dependencies: scan.dependencies }
 }
 
 /// identity detects include cycles even through a symbolic link.
@@ -267,12 +307,20 @@ struct Folder {
     rel: String,
 }
 
-fn folders(dir: &str, deep: bool, scan: &mut Scan) -> Vec<Folder> {
+fn folders(
+    dir: &str,
+    deep: bool,
+    members: Option<&crate::workspace::Members>,
+    declared: bool,
+    ignores: &mut crate::workspace::IgnoreRules,
+    scan: &mut Scan,
+) -> Vec<Folder> {
     let mut out = vec![Folder { path: dir.into(), rel: String::new() }];
     let mut level = vec![(dir.to_string(), String::new())];
-    let mut count = 1;
+    scan.enter_folder(dir);
+    let max_depth = if declared { 64 } else { MAX_DEPTH };
     // Read the last level too, so an unreadable directory is not an empty project.
-    for depth in 0..=if deep { MAX_DEPTH } else { 0 } {
+    for depth in 0..=if deep { max_depth } else { 0 } {
         let mut next = Vec::new();
         for (path, rel) in &level {
             scan.watch(path);
@@ -288,7 +336,20 @@ fn folders(dir: &str, deep: bool, scan: &mut Scan) -> Vec<Folder> {
             }
             for entry in entries {
                 let Some(name) = entry.file_name().to_str().map(str::to_string) else { continue };
-                if name.starts_with('.') || SKIPPED.contains(&name.as_str()) {
+                if name == ".git" || SKIPPED.contains(&name.as_str()) {
+                    if let Some(rules) = members.filter(|_| declared)
+                        && rules.may_descend(&filepath::join(&[rel, &name]))
+                        && rules.names_directory(&name)
+                    {
+                        scan.problem(Some(Source::Npm), &rules.manifest, format!("workspace pattern reaches excluded dependency/generated folder {name:?}; this folder was not traversed"));
+                    }
+                    continue;
+                }
+                if name.starts_with('.') && !declared {
+                    continue;
+                }
+                let relative = filepath::join(&[rel, &name]);
+                if members.is_some_and(|rules| rules.excluded(&relative)) {
                     continue;
                 }
                 let kind = match entry.file_type() {
@@ -299,18 +360,53 @@ fn folders(dir: &str, deep: bool, scan: &mut Scan) -> Vec<Folder> {
                     }
                 };
                 if !kind.is_dir() {
+                    if kind.is_symlink() && declared && members.is_some_and(|rules| rules.may_descend(&relative)) {
+                        scan.problem(
+                            None,
+                            &filepath::join(&[path, &name]),
+                            "declared workspace member is a symlink; select it explicitly instead",
+                        );
+                    }
                     continue;
                 }
-                if depth == MAX_DEPTH {
-                    scan.problem(None, dir, format!("folders below depth {MAX_DEPTH} were not inspected"));
+                let child = filepath::join(&[path, &name]);
+                if declared && members.is_some_and(|rules| !rules.may_descend(&relative)) {
                     continue;
                 }
-                if count == MAX_FOLDERS {
-                    scan.problem(None, dir, format!("discovery stopped at the {MAX_FOLDERS}-folder limit"));
+                scan.watch(&filepath::join(&[&child, ".git"]));
+                if crate::exists(&filepath::join(&[&child, ".git"])) {
+                    scan.notice(
+                        &child,
+                        "nested repository was not traversed; select or register that checkout explicitly",
+                    );
                     continue;
                 }
-                count += 1;
-                next.push((filepath::join(&[path, &name]), filepath::join(&[rel, &name])));
+                let (local_ignored, git_ignored) = ignores.ignored(&child, scan);
+                if local_ignored {
+                    continue;
+                }
+                if git_ignored {
+                    if !declared {
+                        continue;
+                    }
+                    if members.is_some_and(|rules| rules.contains(&relative)) {
+                        scan.notice(&child, "declared workspace member included despite a repository ignore; .runuiignore can exclude it");
+                    }
+                }
+                if depth == max_depth {
+                    if !scan.visited_folders.contains(&child) {
+                        scan.problem(
+                            None,
+                            dir,
+                            format!("incidental folders below depth {max_depth} were not inspected"),
+                        );
+                    }
+                    continue;
+                }
+                if !scan.enter_folder(&child) {
+                    continue;
+                }
+                next.push((child, relative));
             }
         }
         out.extend(next.iter().map(|(path, rel)| Folder { path: path.clone(), rel: rel.clone() }));

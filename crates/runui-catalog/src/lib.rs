@@ -18,6 +18,23 @@ pub mod usage;
 
 pub use search::{Hit, Query};
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Scope {
+    #[default]
+    Project,
+    Workspace,
+}
+
+impl Scope {
+    pub fn directory(self, project: &str, checkout: &str) -> String {
+        match self {
+            Self::Project => project.into(),
+            Self::Workspace => runui_project::workspace_root(project, checkout),
+        }
+    }
+}
+
 /// Context keeps execution paths separate from display labels and scope.
 #[derive(Clone, Debug)]
 pub struct Context {
@@ -140,6 +157,8 @@ pub struct Entry {
     pub checkout: String,
     pub directory: String,
     pub relative_directory: String,
+    #[serde(default)]
+    pub proximity: usize,
     pub entry_file: Option<String>,
     pub defining_file: Option<String>,
     pub defining_line: Option<usize>,
@@ -236,6 +255,7 @@ impl Snapshot {
                     project: project_name.clone(),
                     project_directory: context.project.clone(),
                     checkout: context.checkout.clone(),
+                    proximity: distance(&context.invocation_dir, &directory),
                     directory,
                     relative_directory,
                     entry_file: Some(canonical(&file.path)),
@@ -266,13 +286,21 @@ impl Snapshot {
                 kind: "discovery".into(),
             });
         }
+        for notice in &discovery.notices {
+            snapshot.diagnostics.push(Diagnostic {
+                path: notice.path.clone(),
+                message: notice.message.clone(),
+                source: notice.source.map(|source| source.as_str().into()),
+                kind: "notice".into(),
+            });
+        }
         for favorite in favorites {
             let directory = canonical(&Path::new(&context.project).join(&favorite.dir).to_string_lossy());
             let mut matched = false;
             for entry in &mut snapshot.entries {
                 if entry.directory == directory
                     && entry.command == favorite.command
-                    && (favorite.source.is_empty() || favorite.source == entry.source)
+                    && (entry.kind == Kind::Favorite || favorite.source.is_empty() || favorite.source == entry.source)
                 {
                     entry.favorite = true;
                     entry.favorite_names.push(favorite.label().into());
@@ -295,6 +323,7 @@ impl Snapshot {
                 project_directory: context.project.clone(),
                 checkout: context.checkout.clone(),
                 relative_directory: relative(&context.checkout, &directory),
+                proximity: distance(&context.invocation_dir, &directory),
                 directory,
                 entry_file: None,
                 defining_file: None,
@@ -304,7 +333,7 @@ impl Snapshot {
                 recipe,
                 availability: Availability::Shell,
                 favorite: true,
-                favorite_names: Vec::new(),
+                favorite_names: vec![favorite.label().into()],
                 launches: 0,
                 last_used: None,
                 run_id: None,
@@ -346,6 +375,7 @@ impl Snapshot {
                 checkout: context.checkout.clone(),
                 directory: directory.clone(),
                 relative_directory: relative(&context.checkout, &directory),
+                proximity: distance(&context.invocation_dir, &directory),
                 entry_file: None,
                 defining_file: None,
                 defining_line: None,
@@ -405,6 +435,7 @@ impl Snapshot {
                 checkout: context.checkout.clone(),
                 directory: invocation.directory.clone(),
                 relative_directory: relative(&context.checkout, &invocation.directory),
+                proximity: distance(&context.invocation_dir, &invocation.directory),
                 entry_file: None,
                 defining_file: None,
                 defining_line: None,
@@ -440,6 +471,10 @@ impl Snapshot {
 
     pub fn entries(&self) -> &[Entry] {
         &self.entries
+    }
+
+    pub fn complete(&self) -> bool {
+        self.diagnostics.iter().all(|diagnostic| diagnostic.kind == "notice")
     }
 
     pub fn get(&self, id: &str) -> Option<&Entry> {
@@ -583,6 +618,13 @@ pub fn quote_arg(arg: &str) -> String {
     } else {
         format!("'{}'", arg.replace('\'', "'\\''"))
     }
+}
+
+fn distance(from: &str, directory: &str) -> usize {
+    Path::new(&relative(from, directory))
+        .components()
+        .filter(|part| !matches!(part, std::path::Component::CurDir))
+        .count()
 }
 
 pub fn canonical(path: &str) -> String {

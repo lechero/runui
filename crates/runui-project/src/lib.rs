@@ -18,6 +18,7 @@ mod makefile;
 mod maven;
 mod npm;
 mod taskfile;
+mod workspace;
 // the ports of Go's libraries are kept whole, though runui reads only some of what they do
 #[allow(dead_code)]
 mod xml;
@@ -29,6 +30,7 @@ pub use makefile::read_makefile;
 pub use maven::read_pom;
 pub use npm::read_package_json;
 pub use taskfile::read_taskfile;
+pub use workspace::workspace_root;
 
 use compose::compose_files;
 use makefile::MAKEFILE_NAMES;
@@ -165,8 +167,9 @@ const SKIPPED: [&str; 17] = [
 ];
 
 /// load reads the project's files: the folder's own, then, when it's a
-/// project or in a repository, the ones in the folders under it, three
-/// deep, in the order of their paths. In each folder: its Taskfile (one
+/// project or in a repository, declared workspace members and incidental
+/// folders under it three deep, in path order and with local ignore policy.
+/// In each folder: its Taskfile (one
 /// that another Taskfile includes is left to that one, as Task names its
 /// tasks there), package.json, Makefile, docker compose files and pom.xml.
 /// stop is the repository's root, where lock files and Maven's wrapper are
@@ -212,6 +215,18 @@ pub fn repo_root(dir: &str) -> String {
     }
 }
 
+/// context_root is the checkout boundary, or the enclosing declared workspace
+/// outside Git. A member opened from an unpacked workspace has the same IDs and
+/// package-manager context as when opened from that workspace's root.
+pub fn context_root(dir: &str, home: &str) -> String {
+    let repo = repo_root(dir);
+    if exists(&filepath::join(&[&repo, ".git"])) {
+        return repo;
+    }
+    let stop = if !home.is_empty() && std::path::Path::new(dir).starts_with(home) { home } else { "/" };
+    workspace_root(dir, stop)
+}
+
 /// changed is the legacy revision check. It rediscovers dependencies for
 /// callers that kept only files; a retained Discovery checks metadata without
 /// parsing again and should be preferred by long-lived callers.
@@ -225,6 +240,7 @@ pub fn changed(dir: &str, files: &[File]) -> String {
 
 pub(crate) fn has_project_file(dir: &str) -> bool {
     first_file(dir, &TASKFILE_NAMES).is_some()
+        || is_file(&filepath::join(&[dir, "pnpm-workspace.yaml"]))
         || is_file(&filepath::join(&[dir, "package.json"]))
         || first_file(dir, &MAKEFILE_NAMES).is_some()
         || !compose_files(dir).is_empty()

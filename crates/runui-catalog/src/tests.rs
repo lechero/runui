@@ -79,6 +79,49 @@ fn package_and_workspace_scopes_use_the_same_checkout_qualified_id() {
 }
 
 #[test]
+fn workspace_favorites_merge_aliases_and_nearby_packages_break_equal_search_ties() {
+    let (_temp, mut context) = fixture();
+    write(&context, "package.json", r#"{"workspaces":["packages/*"],"scripts":{"test":"true"}}"#);
+    write(&context, "packages/web/package.json", r#"{"scripts":{"test":"true"}}"#);
+    context.invocation_dir = Path::new(&context.project).join("packages/web").to_string_lossy().into_owned();
+    let mut favorites =
+        runui_favorites::Store::open(&Path::new(&context.project).join("favorites.json").to_string_lossy()).unwrap();
+    favorites
+        .add(
+            &context.project,
+            Favorite {
+                name: "root alias".into(),
+                command: "echo saved".into(),
+                dir: "packages/web".into(),
+                ..Favorite::default()
+            },
+        )
+        .unwrap();
+    favorites
+        .add(
+            &context.invocation_dir,
+            Favorite { name: "package alias".into(), command: "echo saved".into(), ..Favorite::default() },
+        )
+        .unwrap();
+    let projection = favorites.for_tree(&context.project);
+    let snapshot = Snapshot::build(
+        &context,
+        &runui_project::discover(&context.project, &context.checkout),
+        &projection,
+        &[],
+        &usage::Data::default(),
+    );
+    let hits = snapshot.search(&Query::parse("test").unwrap());
+    assert_eq!(hits[0].entry.directory, context.invocation_dir);
+    let saved = snapshot.search(&Query::parse("source:shell").unwrap());
+    assert_eq!(saved.len(), 1);
+    assert_eq!(saved[0].entry.favorite_names.len(), 2);
+    assert!(snapshot.prepare(&saved[0].entry.id, None, &Inputs::default()).is_ok());
+    assert_eq!(favorites.for_dir(&context.project)[0].dir, "packages/web");
+    assert_eq!(favorites.for_dir(&context.invocation_dir)[0].dir, "");
+}
+
+#[test]
 fn include_provenance_and_execution_fingerprints_include_hidden_definitions() {
     let (_temp, context) = fixture();
     write(&context, "Taskfile.yml", "version: '3'\nincludes:\n  one: .tasks/shared.yml\n  two: .tasks/shared.yml\n");

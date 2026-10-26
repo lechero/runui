@@ -17,7 +17,8 @@ mod resolve;
 mod scanner;
 
 pub(crate) use node::{
-    Doc, Include, MAPPING_NODE, NodeId as NodeRef, SCALAR_NODE, Task, unmarshal_compose, unmarshal_taskfile,
+    Doc, Include, MAPPING_NODE, NodeId as NodeRef, SCALAR_NODE, SEQUENCE_NODE, Task, Tree, unmarshal_compose,
+    unmarshal_doc, unmarshal_taskfile,
 };
 
 /// YamlError is an error yaml.v3 returns, in its words ("yaml: line 3:

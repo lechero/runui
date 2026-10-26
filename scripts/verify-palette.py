@@ -33,7 +33,10 @@ with tempfile.TemporaryDirectory(prefix='runui-palette-') as temporary:
     (app / '.tasks').mkdir()
     (app / 'Taskfile.yml').write_text("version: '3'\nincludes:\n  docs: .tasks/shared.yml\n  web: .tasks/shared.yml\n")
     (app / '.tasks/shared.yml').write_text("version: '3'\ntasks:\n  build:\n    desc: Build documentation\n    cmds: [echo docs]\n")
-    (app / 'package.json').write_text('{"scripts":{"dev":"echo dev"}}')
+    (app / 'package.json').write_text('{"scripts":{"dev":"echo dev"},"workspaces":["packages/**"]}')
+    web = app / 'packages/web'
+    web.mkdir(parents=True)
+    (web / 'package.json').write_text('{"scripts":{"web":"true"}}')
     (app / 'Makefile').write_text("check: ## Check palette launches\n\t@printf 'PALETTE_READY\\n'; sleep 1\nhandoff:\n\t@printf 'TERMINAL_READY\\n' > handoff.marker\n")
     launcher = home / 'launcher'
     launcher.write_text('#!/bin/sh\nprintf "%s\\0%s\\0" "$1" "$2" >> "$HOME/handoffs"\n')
@@ -74,7 +77,7 @@ with tempfile.TemporaryDirectory(prefix='runui-palette-') as temporary:
         values = [f'{name}={env[name]}' for name in ('HOME','XDG_CONFIG_HOME','XDG_STATE_HOME','TERM','COLORTERM','SHELL','EDITOR')]
         if not native:
             values.append('RUNUI_TERMINAL='+str(launcher))
-        command = shlex.join(['env','-u','NO_COLOR',*values,str(BIN),'-C',str(app)])
+        command = shlex.join(['env','-u','NO_COLOR',*values,str(BIN),'-C',str(web if native else app)])
         try:
             tmux('new-session','-d','-s','verify','-x','120','-y','36',command)
             tmux('set-option','-sg','escape-time','10')
@@ -86,8 +89,13 @@ with tempfile.TemporaryDirectory(prefix='runui-palette-') as temporary:
             key('C-p')
             shows('Commands · Project')
             text('source:make handoff' if native else 'source:make check')
+            if native:
+                shows('No matches')
+                key('M-s')
+                shows('Commands · Workspace')
             shows('$ make handoff' if native else '$ make check')
             if native:
+                shot('runui-workspace-wide',120,36)
                 key('C-t')
                 wait(lambda: (app/'handoff.marker').exists(), 'native terminal command did not run')
                 assert 'TERMINAL_READY' in (app/'handoff.marker').read_text()

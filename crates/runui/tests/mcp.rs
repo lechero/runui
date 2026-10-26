@@ -40,6 +40,68 @@ fn id_of(run: &Value) -> String {
     run["structuredContent"]["id"].as_str().unwrap().to_string()
 }
 
+#[test]
+fn workspace_scope_resolves_the_same_sibling_id_as_cli_and_launches_in_its_directory() {
+    let home = tempfile::tempdir().unwrap();
+    let root = home.path().join("project");
+    let web = root.join("packages/web");
+    let engine = root.join("packages/a/b/engine");
+    for directory in [&root.join(".git"), &web, &engine] {
+        fs::create_dir_all(directory).unwrap();
+    }
+    fs::write(root.join("package.json"), r#"{"workspaces":["packages/**"]}"#).unwrap();
+    for directory in [&web, &engine] {
+        fs::write(directory.join("package.json"), "{}").unwrap();
+    }
+    fs::write(engine.join("Makefile"), "check:\n\t@pwd > cwd.txt\n").unwrap();
+    let mut command = Command::new(env!("CARGO_BIN_EXE_runui"));
+    command
+        .env("HOME", home.path())
+        .env("XDG_CONFIG_HOME", home.path().join("config"))
+        .env("XDG_STATE_HOME", home.path().join("state"))
+        .current_dir(&web);
+    let cli = command.args(["commands", "--scope", "workspace", "--json", "source:make check"]).output().unwrap();
+    assert!(cli.status.success());
+    let cli: Value = serde_json::from_slice(&cli.stdout).unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_runui"))
+        .args(["mcp", "-C", web.to_str().unwrap()])
+        .env("HOME", home.path())
+        .env("XDG_CONFIG_HOME", home.path().join("config"))
+        .env("XDG_STATE_HOME", home.path().join("state"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut client =
+        Client { input: child.stdin.take().unwrap(), output: BufReader::new(child.stdout.take().unwrap()), child };
+    client.request(
+        1,
+        "initialize",
+        json!({"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"scope-test","version":"1"}}),
+    );
+    client.notify("notifications/initialized");
+    let local = client.tool(2, "list_commands", json!({"query":"source:make check"}));
+    assert_eq!(local["structuredContent"]["commands"], json!([]));
+    let page = client.tool(3, "list_commands", json!({"scope":"workspace","query":"source:make check"}));
+    let entry = &page["structuredContent"]["commands"][0];
+    assert_eq!(entry["id"], cli["commands"][0]["id"]);
+    assert_eq!(entry["fingerprint"], cli["commands"][0]["fingerprint"]);
+    let id = entry["id"].clone();
+    assert_eq!(client.tool(4, "start_run", json!({"id":id}))["isError"], true);
+    let started = client.tool(5, "start_run", json!({"id":id,"scope":"workspace"}));
+    assert_eq!(started["isError"], false, "{started}");
+    assert_eq!(started["structuredContent"]["agent"], "scope-test");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !engine.join("cwd.txt").exists() {
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert!(runui_catalog::same_directory(
+        fs::read_to_string(engine.join("cwd.txt")).unwrap().trim(),
+        engine.to_str().unwrap()
+    ));
+}
+
 impl Drop for Client {
     fn drop(&mut self) {
         let _ = self.child.kill();

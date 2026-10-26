@@ -1,6 +1,6 @@
 # Shared command catalog
 
-`ctrl+p`, the catalog CLI, and MCP use the same definitions, IDs, fingerprints, and preparation. This increment covers the existing five sources, saved favorites, persisted runs, and recent runui invocations in the selected project. The [implementation audit](implementation-status.md) tracks the remaining complete-v1 work.
+`ctrl+p`, the catalog CLI, and MCP use the same definitions, IDs, fingerprints, and preparation. This covers the existing five sources, saved favorites, persisted runs, and recent runui invocations in Project and Workspace scopes. The [implementation audit](implementation-status.md) tracks the remaining complete-v1 work.
 
 ## Find and understand
 
@@ -8,12 +8,21 @@
 runui commands -C /path/to/project --query 'source:npm test' --json
 runui find -C /path/to/project 'dir:apps/web build'
 runui find -C /path/to/project --mode recent --json
+runui find -C /path/to/project/packages/web --scope workspace test --json
 runui inspect -C /path/to/project COMMAND_ID --json
 ```
 
 `commands` and `find` have the same search contract. Text matches names, descriptions, directories and source information. Facets are `project:`, `source:`, `dir:`, `kind:`, and `state:`. Quote a complete token or escape its colon to search it literally (`"source:npm"`, `source\:npm`); quote a facet value containing spaces (`dir:"apps/web client"`). Unknown facet names are literal text. Exact name matches rank ahead of weak description matches; favorites and usage break comparable ties.
 
-Modes are `commands` (definitions and favorites, the default), `recent`, and `all` (also run rows). `--scope project` is the only scope implemented in this increment. Search pages default to 200 entries, accept `--limit 1..500` and `--offset N`, and return `next_offset` when another page exists. JSON search responses have `schema_version: 1`, `commands`, `diagnostics`, and `complete`. Check diagnostics even when entries were returned.
+Modes are `commands` (definitions and favorites, the default), `recent`, and `all` (also run rows). `--scope project` is the default; `--scope workspace` uses the enclosing pnpm/npm/Yarn declaration. Supply the same scope to `inspect` and `run` when selecting a sibling's ID. Search pages default to 200 entries, accept `--limit 1..500` and `--offset N`, and return `next_offset` when another page exists. JSON search responses have `schema_version: 1`, `scope`, `commands`, `diagnostics`, and `complete`. Check diagnostics even when entries were returned. A diagnostic with `kind: notice` explains policy and does not make `complete` false.
+
+Workspace discovery reads `pnpm-workspace.yaml` before `package.json` workspaces (array or Yarn Classic `packages` object). It supports literal paths, `*`, `**`, `?`, character classes, bounded comma braces, and `!` exclusions. Patterns are relative to the declared root, with `./`, repeated separators and static `..` normalization supported. Paths escaping the root, dynamic/extglob patterns and unsupported brace forms are diagnosed. An omitted or empty pnpm package list includes only the root. Hidden directories need explicit patterns. No dependency installation or native package-manager inspection runs during discovery.
+
+Members can be deeper than the three-level incidental scan. Both scans share limits of 2,000 visited folders and 150 source/dependency files; workspace patterns are limited to 256 (64 alternatives per brace expansion), declared traversal to 64 levels, and each ignore file to 64 KiB. `.runuiignore` uses Git-ignore syntax and applies even to declared members; repository `.gitignore` files only suppress incidental discovery. Declared ignored members are included with a notice. Symlinks, nested repositories and dependency/generated folders are not traversed. Folder watches include missing literal prefixes, so new deep members appear without restarting.
+
+The selected project, enclosing workspace, checkout boundary and invocation folder serve different purposes. Scope changes search breadth; the recipe's cwd stays fixed. Equal text/favorite/usage matches prefer folders nearest the invocation. Workspace favorites are projected from existing folder keys without rewriting them; aliases for one execution identity are merged.
+
+Membership references: [pnpm workspace settings](https://pnpm.io/settings#packages), [npm workspaces](https://docs.npmjs.com/cli/configuring-npm/package-json#workspaces), and [Yarn workspaces](https://yarnpkg.com/features/workspaces). Pattern and ignore parsing use the [glob](https://docs.rs/glob/latest/glob/) and [ignore](https://docs.rs/ignore/latest/ignore/) crates, with the limits above.
 
 Each entry includes the source and origin, physical checkout and execution directory, entry file and defining file/location when known, availability, exact command, recipe, favorite aliases, usage, and run association. Included Taskfile provenance retains both the entry Taskfile and actual included definition. A missing tool does not hide a command. `project_environment` means the runner uses a project wrapper such as mise; it does not claim the tool has been resolved or provisioned.
 
@@ -30,11 +39,11 @@ The definition is resolved from current files before launch. An expected fingerp
 
 Search text and launch inputs are separate. Launch/inspect commands reject search-only options instead of silently ignoring them. Inspect returns one entry; a successful launch returns run metadata plus `definition_id` and `fingerprint`. A history-write error is reported separately as `history_error` because the process may already be running. Run rows focus existing runs in the TUI; they cannot be launched as command definitions.
 
-MCP `list_commands` accepts the same query text and page bounds and returns the same IDs. `start_run` accepts either a raw `command` or catalog `id`. For an ID, optional `fingerprint` and `inputs` (`args` array, `variables` object) use the same preparation as the CLI. Do not send `directory` with an ID: its execution context is part of the definition. Raw callers keep their existing command/directory behavior. MCP never receives private shell recall.
+MCP `list_commands` accepts the same query text, `scope` and page bounds and returns the same IDs. `start_run` accepts either a raw `command` or catalog `id`. For an ID, use the same `scope`; optional `fingerprint` and `inputs` (`args` array, `variables` object) use the same preparation as the CLI. Do not send `directory` with an ID: its execution context is part of the definition. Raw callers keep their existing project command/directory behavior. MCP never receives private shell recall.
 
 ## Palette actions and recall
 
-`enter` runs a selection or focuses a matching live run. `alt+r` deliberately starts another. `tab` switches Commands and Recent; `alt+u` selects the current definition referenced by a recent invocation. This does not replace the stored invocation. Exact repeat retains the original command, shell and cwd. An invocation with pruned output says so and remains available for repeat.
+`enter` runs a selection or focuses a matching live run. `alt+r` deliberately starts another. `alt+s` switches Project and Workspace while preserving query text; `tab` switches Commands and Recent. `alt+u` selects the current definition referenced by a recent invocation. This does not replace the stored invocation. Exact repeat retains the original command, shell and cwd. An invocation with pruned output says so and remains available for repeat.
 
 `ctrl+v` toggles scrollable details at narrow sizes; arrows and page keys scroll them. `alt+m` toggles a favorite, `ctrl+y` copies the exact command, `ctrl+o` opens the defining source with `$EDITOR` (default `vi`), and `ctrl+t` opens the command in a terminal. `esc` closes the palette and restores the panel's filter, tab, selection, and focus. The palette does not mark covered output as reviewed.
 
