@@ -3,9 +3,9 @@
 //! project's own commands (a tab for each kind of file: Taskfile,
 //! package.json, Makefile, Compose, Maven, with the ones in the folders
 //! under it, three deep) and 3 the runs (here, everywhere, and the ones
-//! agents started through runui mcp, once there are some), 4 the pending
-//! errors from every folder. On the right the pane shows what the row
-//! under the cursor runs and, once it
+//! agents started through runui mcp, once there are some), 4 the Log of
+//! finished runs from every folder (unread results and all history). On
+//! the right the pane shows what the row under the cursor runs and, once it
 //! has run, its output, followed as it's printed. A command runs under a
 //! supervisor of its own and keeps running once runui quits; the next
 //! runui finds it, its output and all, and stops it. Ported from
@@ -40,7 +40,7 @@ pub trait Runner: Send + Sync {
     fn stop(&self, r: &Run) -> anyhow::Result<()>;
     fn remove(&self, r: &Run) -> anyhow::Result<()>;
     fn acknowledge(&self, r: &Run) -> anyhow::Result<()>;
-    fn pending_error(&self, r: &Run) -> bool;
+    fn pending_result(&self, r: &Run) -> bool;
 }
 
 impl Runner for runs::Store {
@@ -59,8 +59,8 @@ impl Runner for runs::Store {
     fn acknowledge(&self, r: &Run) -> anyhow::Result<()> {
         runs::Store::acknowledge(self, r)
     }
-    fn pending_error(&self, r: &Run) -> bool {
-        runs::Store::pending_error(self, r)
+    fn pending_result(&self, r: &Run) -> bool {
+        runs::Store::pending_result(self, r)
     }
 }
 
@@ -115,11 +115,15 @@ enum Focus {
 const PANEL_FAVORITES: usize = 0;
 const PANEL_PROJECT: usize = 1;
 const PANEL_RUNS: usize = 2;
-const PANEL_ERRORS: usize = 3;
+const PANEL_LOG: usize = 3;
 
 // The Runs panel's tabs: here, everywhere, and what agents started.
 const RUNS_EVERYWHERE: usize = 1;
 const RUNS_AGENTS: usize = 2;
+
+// The Log panel's tabs: results to review, and every finished attempt.
+const LOG_UNREAD: usize = 0;
+const LOG_ALL: usize = 1;
 
 /// Panel is a box in the sidebar: its name, and its views as tabs.
 struct Panel {
@@ -232,8 +236,11 @@ impl Model {
                     cur: 0,
                 },
                 Panel {
-                    name: "Errors".into(),
-                    views: vec![View::new("Errors", "no pending errors in any folder")],
+                    name: "Log".into(),
+                    views: vec![
+                        View::new("Unread", "all caught up; ] opens history"),
+                        View::new("All", "no finished runs in any folder yet"),
+                    ],
                     cur: 0,
                 },
             ],
@@ -346,9 +353,18 @@ impl App {
                     return self.list_runs();
                 }
                 self.say(&format!("started {}", m.run.command), false);
+                let from_log = self.cur == PANEL_LOG;
+                let key = format!("run {}", m.run.id);
+                let tab = if self.here(&m.run) { 0 } else { RUNS_EVERYWHERE };
                 let mut list = vec![m.run];
                 list.extend(self.runs.iter().cloned());
                 self.set_runs(list);
+                if from_log {
+                    self.panels[PANEL_RUNS].cur = tab;
+                    self.jump(PANEL_RUNS as i32);
+                    self.shown_mut().pick(&key);
+                    self.sync_output();
+                }
                 return self.list_runs();
             }
             Err(msg) => msg,
@@ -536,7 +552,7 @@ impl App {
         self.panels[PANEL_RUNS].views[0].set(here);
         self.panels[PANEL_RUNS].views[RUNS_EVERYWHERE].set(all);
         self.set_agents(agents);
-        self.set_errors();
+        self.set_log();
         self.sync_output();
     }
 
@@ -559,22 +575,29 @@ impl App {
         p.views[RUNS_AGENTS].set(agents);
     }
 
-    /// set_errors lists the same pending failures the status bar counts.
-    /// Keep the viewed row while reading it, so a refresh cannot select and
-    /// acknowledge the next error on its own.
-    fn set_errors(&mut self) {
-        let viewed = if self.cur == PANEL_ERRORS { self.selected().map(|it| it.run.id) } else { None };
-        let items = self.panels[PANEL_RUNS].views[RUNS_EVERYWHERE]
-            .all
+    /// set_log shares finished history with an inbox of unread results.
+    /// Keep the viewed inbox row while reading, so a refresh cannot select
+    /// and acknowledge the next result on its own.
+    fn set_log(&mut self) {
+        let viewed = if self.cur == PANEL_LOG && self.panels[PANEL_LOG].cur == LOG_UNREAD {
+            self.selected().map(|it| it.run.id)
+        } else {
+            None
+        };
+        let mut all: Vec<_> =
+            self.panels[PANEL_RUNS].views[RUNS_EVERYWHERE].all.iter().filter(|it| !it.run.live()).cloned().collect();
+        all.sort_by_key(|it| std::cmp::Reverse(it.run.ended.unwrap_or(it.run.started)));
+        let unread = all
             .iter()
-            .filter(|it| self.cfg.runs.pending_error(&it.run) || viewed.as_deref() == Some(&it.run.id))
+            .filter(|it| self.cfg.runs.pending_result(&it.run) || viewed.as_deref() == Some(&it.run.id))
             .cloned()
             .collect();
-        self.panels[PANEL_ERRORS].views[0].set(items);
+        self.panels[PANEL_LOG].views[LOG_UNREAD].set(unread);
+        self.panels[PANEL_LOG].views[LOG_ALL].set(all);
     }
 
-    fn pending_errors(&self) -> usize {
-        self.runs.iter().filter(|r| self.cfg.runs.pending_error(r)).count()
+    fn pending_results(&self) -> usize {
+        self.runs.iter().filter(|r| self.cfg.runs.pending_result(r)).count()
     }
 
     /// shown is the view showing in the panel with the focus.
@@ -711,6 +734,9 @@ impl App {
             let p = &mut self.panels[self.cur];
             let step = if s == "[" { p.views.len() - 1 } else { 1 };
             p.cur = (p.cur + step) % p.views.len();
+            if self.cur == PANEL_LOG {
+                self.set_log();
+            }
             self.sync_output();
         } else if m(&k.focus_pane) {
             self.focus = Focus::Pane;
@@ -792,10 +818,10 @@ impl App {
         if i < 0 || i as usize >= self.panels.len() {
             return;
         }
-        let leaving_errors = self.cur == PANEL_ERRORS && i as usize != PANEL_ERRORS;
+        let leaving_log = self.cur == PANEL_LOG && i as usize != PANEL_LOG;
         (self.cur, self.focus) = (i as usize, Focus::Side);
-        if leaving_errors {
-            self.set_errors();
+        if leaving_log {
+            self.set_log();
         }
         self.sync_output();
     }

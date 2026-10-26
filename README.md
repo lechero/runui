@@ -75,16 +75,23 @@ Use `m` to star a discovered command for this folder, or `a` to add your own she
 
 The Runs panel has **Here** and **Everywhere** tabs, and an **Agents** tab once an agent has started a run through `runui mcp`. `●` means running, `✓` exited successfully, `✗` failed, `■` was stopped, and `?` means runui lost track of it.
 
-Press `4` to open **Errors**, which lists unreviewed failures and lost runs from **every folder**, matching the error count in tmux. Select a row to view its output and mark it as reviewed. The selected result stays visible while you read it; other errors wait for you to select them. History and logs remain in Runs.
+Press `4` to open **Log**, a global inbox and history of finished runs:
+
+- **Unread** lists successful, failed, and lost results that still count in tmux. A `•` marks an unread result. Select a row to view its output and clear its completion or error notice. The selected result stays visible while you read; refreshing never clears the next result automatically.
+- **All** keeps finished attempts, including reviewed and deliberately stopped runs, newest finish first. Running processes stay in Runs and keep their running count. Switch tabs with `[` / `]`.
+
+Use `/` to find a run by name, command, folder, outcome (`completed`, `failed`, `lost`, `stopped`), or agent. Press `R` to run it again and follow the new attempt in Runs, `y` to copy its command, or `D` to forget it and its output. Repeat runs keep their own history and review state within the retention limit.
+
+![Log showing unread successes and failures from different projects, with a reviewed result still open](docs/assets/log.png)
 
 ### Keys at a glance
 
 | Keys | Action |
 | --- | --- |
-| `tab` / `shift+tab`, `1`–`4` | Move between Favorites, Project, Runs, and Errors. |
-| `[` / `]` | Switch source tabs or Here / Everywhere / Agents. |
+| `tab` / `shift+tab`, `1`–`4` | Move between Favorites, Project, Runs, and Log. |
+| `[` / `]` | Switch source tabs, Runs tabs, or Log Unread / All. |
 | `j` / `k`, `g` / `G` | Move through rows. |
-| `/` | Filter rows by name, folder, command, or description. |
+| `/` | Filter rows; runs also match outcome and agent. |
 | `enter` | Run a command; on a run, focus its output. |
 | `s` / `R` | Stop or restart a run. |
 | `m` / `a` / `e` / `D` | Star, add, edit, or remove a favorite; `D` also forgets an ended run. |
@@ -103,7 +110,7 @@ Each command runs in its own folder through `sh -c` (and through `mise exec` whe
 | Favorites | `~/.config/runui/favorites.json` | `$XDG_CONFIG_HOME/runui/favorites.json` |
 | Runs and output | `~/.local/state/runui/runs` | `$XDG_STATE_HOME/runui/runs` |
 
-Runui keeps up to forty ended runs across folders. Their output remains available until the run is forgotten or pruned.
+When a new run starts, Runui keeps the forty most recent previous ended runs across folders, including repeated commands. Their output remains available until the run is forgotten or pruned.
 
 ### Status line
 
@@ -126,7 +133,7 @@ set -ag status-right '#(runui status tmux)'
 
 If `runui status` shows counts but tmux shows nothing, use the absolute path from `command -v runui` inside `#(...)` and reload your tmux configuration. The tmux server may have a different `PATH` from a new shell.
 
-Finished results stay counted until you **view their output** in Runui. Selecting a run, favorite, or project command that shows a finished run's output marks that result as reviewed; the output pane does not need focus. A run that finishes while its output is visible is marked as reviewed then. The Errors panel (`4`) makes unreviewed failures from other folders easy to find. Running processes remain counted. Run `runui status clear` to dismiss all finished counts at once. Viewing or clearing results keeps run history and output.
+Finished results stay counted until you **view their output** in Runui. Selecting a run, favorite, or project command that shows a finished run's output marks that result as reviewed; the output pane does not need focus. A run that finishes while its output is visible is marked as reviewed then. Log (`4`) gathers unread completions and failures from every folder; its All tab keeps the history after review. Running processes remain counted. Run `runui status clear` to dismiss all finished counts at once. Viewing or clearing results keeps run history and output.
 
 ## Use with an agent
 
