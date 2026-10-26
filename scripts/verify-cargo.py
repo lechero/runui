@@ -203,16 +203,27 @@ engine.workspace=true
     if RUSTUP:
         proxies=home/'rustup-proxies'
         proxies.mkdir()
-        for name in ['cargo','rustc','rustup']:(proxies/name).symlink_to(Path(RUSTUP).resolve())
+        rustup_binary=Path(RUSTUP).resolve()
+        with rustup_binary.open('rb') as stream:script_proxy=stream.read(2)==b'#!'
+        for name in ['cargo','rustc','rustup']:(proxies/name).symlink_to(rustup_binary)
         if CARGO.parent.parent.parent.name=='toolchains':
             variant=dict(env,PATH=f'{proxies}:/usr/bin:/bin',RUSTUP_HOME=str(CARGO.parent.parent.parent.parent),RUSTUP_TOOLCHAIN=CARGO.parent.parent.name)
             located=json.loads(subprocess.run([str(BIN),'inspect','--native','--json',binary['id']],cwd=invocation,env=variant,text=True,capture_output=True,timeout=30,check=True).stdout)['native_inspection']
-            assert located['ready'],located
-            assert [probe['tool'] for probe in located['checked'][:2]]==['rustup which cargo','rustup which rustc']
+            if script_proxy:
+                # Some managed macOS runners expose rustup via a script.
+                # Product inspection must reject it without executing it.
+                assert not located['ready'] and not located['checked'] and 'script shim' in located['skipped'],located
+            else:
+                assert located['ready'],located
+                assert [probe['tool'] for probe in located['checked'][:2]]==['rustup which cargo','rustup which rustc']
         variant=dict(env,PATH=f'{proxies}:/usr/bin:/bin',RUSTUP_HOME=str(home/'missing-rustup'),RUSTUP_TOOLCHAIN='runui-never-install')
         skipped=json.loads(subprocess.run([str(BIN),'inspect','--native','--json',binary['id']],cwd=invocation,env=variant,text=True,capture_output=True,timeout=30,check=True).stdout)['native_inspection']
-        assert not skipped['ready'] and 'not installed' in skipped['skipped'],skipped
-        assert skipped['checked'][0]['tool']=='rustup which cargo'
+        assert not skipped['ready'],skipped
+        if script_proxy:
+            assert not skipped['checked'] and 'script shim' in skipped['skipped'],skipped
+        else:
+            assert 'not installed' in skipped['skipped'],skipped
+            assert skipped['checked'][0]['tool']=='rustup which cargo'
         assert not (home/'missing-rustup/toolchains').exists()
     binary=next(entry for entry in cli('commands','--json','source:cargo',cwd=invocation)['commands'] if entry['name']=='run --bin tool (tool)')
     arguments=['--literal-flag','space here',"'\"$();`touch NEVER`",'', 'line\nbreak','☕']
