@@ -331,7 +331,7 @@ fn status(w: &Workspace, clear: bool, tmux: bool, out: &mut dyn Write) -> Result
         }
         match r.state() {
             State::Starting | State::Running => running += 1,
-            State::Exited if r.exit == Some(0) && !store.acknowledged(&r) => completed += 1,
+            State::Exited if r.exit == Some(0) && store.pending_result(&r) => completed += 1,
             State::Exited | State::Lost if store.pending_error(&r) => errored += 1,
             State::Stopped => {}
             State::Exited | State::Lost => {}

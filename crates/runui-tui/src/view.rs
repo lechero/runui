@@ -1,7 +1,7 @@
 //! Drawing the interface, ported from view.go.
 
 use chrono::{DateTime, Datelike, Local, Utc};
-use runui_core::golang::duration::SECOND;
+use runui_core::golang::{duration::SECOND, filepath};
 use runui_project as project;
 use runui_runs::{Run, State};
 use runui_tea::ansi;
@@ -10,7 +10,7 @@ use runui_tea::style::{self, CENTER, LEFT, TOP};
 
 use crate::rows::{Item, Kind, View};
 use crate::styles::*;
-use crate::{App, Area, Focus, Geometry, PANEL_ERRORS, PANEL_RUNS, RUNS_AGENTS, RUNS_EVERYWHERE};
+use crate::{App, Area, Focus, Geometry, PANEL_LOG, PANEL_RUNS, RUNS_AGENTS, RUNS_EVERYWHERE};
 
 /// PORTRAIT_BELOW is how wide the window must be for the sidebar beside
 /// the pane: narrower, the panel with the focus goes on top of it.
@@ -208,12 +208,15 @@ impl App {
             .iter()
             .enumerate()
             .map(|(j, v)| {
-                let name =
-                    if i == PANEL_ERRORS { format!("Errors ({})", self.pending_errors()) } else { v.name.clone() };
+                let name = if i == PANEL_LOG && j == crate::LOG_UNREAD {
+                    format!("Unread ({})", self.pending_results())
+                } else {
+                    v.name.clone()
+                };
                 if j == p.cur && focused {
                     S_ACCENT.bold(true).render(&name)
-                } else if j == p.cur && i == PANEL_ERRORS && self.pending_errors() > 0 {
-                    S_BAD.render(&name)
+                } else if j == p.cur && i == PANEL_LOG && self.pending_results() > 0 {
+                    S_WARN.render(&name)
                 } else if j == p.cur {
                     S_TITLE.render(&name)
                 } else {
@@ -221,7 +224,8 @@ impl App {
                 }
             })
             .collect();
-        let title = line.render(&format!("─[{}]─", i + 1)) + &tabs.join(&S_DIM.render(" - "));
+        let label = if i == PANEL_LOG { S_TITLE.render("Log") + &S_DIM.render(" · ") } else { String::new() };
+        let title = line.render(&format!("─[{}]─", i + 1)) + &label + &tabs.join(&S_DIM.render(" - "));
         ansi::truncate(&title, width.max(1), "…")
     }
 
@@ -230,9 +234,9 @@ impl App {
     /// focus and in grey when it hasn't; a problem reading it and the
     /// filter first.
     fn panel_rows(&mut self, i: usize, width: i32, height: i32, focused: bool) -> Vec<String> {
-        // Errors and the Runs tabs that cover every folder
-        let everywhere = i == PANEL_ERRORS || (i == PANEL_RUNS && self.panels[i].cur >= RUNS_EVERYWHERE);
-        let agents = i == PANEL_ERRORS || (i == PANEL_RUNS && self.panels[i].cur == RUNS_AGENTS);
+        // Log and the Runs tabs that cover every folder
+        let everywhere = i == PANEL_LOG || (i == PANEL_RUNS && self.panels[i].cur >= RUNS_EVERYWHERE);
+        let agents = i == PANEL_LOG || (i == PANEL_RUNS && self.panels[i].cur == RUNS_AGENTS);
         let p = &mut self.panels[i];
         let v = &mut p.views[p.cur];
         let mut out = Vec::new();
@@ -268,10 +272,7 @@ impl App {
         let top = v.top;
         let rows: Vec<Item> = v.shown.iter().skip(top as usize).take(height as usize).cloned().collect();
         for (n, it) in rows.iter().enumerate() {
-            let mut row = self.row(everywhere, agents, it);
-            if i == PANEL_ERRORS && !self.cfg.runs.pending_error(&it.run) {
-                row = format!("{} · {row}", S_DIM.render("reviewed"));
-            }
+            let row = if i == PANEL_LOG { self.log_row(it) } else { self.row(everywhere, agents, it) };
             let mut r = ansi::truncate(&row, width, "…");
             if top + n as i32 == at {
                 let style = if focused { S_ROW_ACTIVE } else { S_ROW_IDLE };
@@ -280,6 +281,24 @@ impl App {
             out.push(r);
         }
         out
+    }
+
+    /// log_row keeps the outcome and review state separate, with a time
+    /// to distinguish repeated attempts. The folder comes before the name
+    /// so a narrow sidebar still says where each run belongs.
+    fn log_row(&self, it: &Item) -> String {
+        let r = &it.run;
+        let unread = if self.cfg.runs.pending_result(r) { S_ACCENT.render("•") } else { " ".into() };
+        let mut hint =
+            format!("{} · {}", when(r.ended.unwrap_or(r.started), (self.cfg.now)()), human(r.took((self.cfg.now)())));
+        if !r.agent.is_empty() {
+            hint += &format!(" · {}", r.agent);
+        }
+        let folder = match self.rel_of(&r.dir) {
+            Some(rel) if !rel.is_empty() => format!("{}/{}", filepath::base(&self.cfg.dir), rel),
+            _ => filepath::base(&r.dir),
+        };
+        format!("{unread} {} {} › {}  {}", self.state_mark(r), S_DIM.render(&folder), it.name, S_DIM.render(&hint))
     }
 
     /// row is an item as its panel lists it: the state of its last run, a ★
@@ -472,7 +491,12 @@ impl App {
     /// header is the top of the pane: what the row runs, where and how it
     /// went, over a rule when its output follows.
     fn header(&self) -> Vec<String> {
-        let Some(it) = self.selected() else { return self.overview() };
+        let Some(it) = self.selected() else {
+            if self.cur == PANEL_LOG {
+                return self.log_overview();
+            }
+            return self.overview();
+        };
         let mut name = S_TITLE.render(&it.name);
         if !it.place.is_empty() && it.kind != Kind::Run {
             name = S_DIM.render(&format!("{} › ", it.place)) + &name;
@@ -495,7 +519,11 @@ impl App {
             return lines;
         };
         lines.push(String::new());
-        lines.push(self.state_line(&r));
+        let mut state = self.state_line(&r);
+        if self.cur == PANEL_LOG && !self.cfg.runs.pending_result(&r) && r.state() != State::Stopped {
+            state = S_DIM.render("reviewed · ") + &state;
+        }
+        lines.push(state);
         if it.kind != Kind::Run && r.started < (self.cfg.now)() - chrono::TimeDelta::seconds(1) && !r.live() {
             let last = lines.len() - 1;
             lines[last] += &S_DIM.render(" · enter runs it again");
@@ -518,6 +546,28 @@ impl App {
         } else {
             format!("from {}{place}", project::label(&it.source))
         }
+    }
+
+    /// log_overview explains where results went once their notices clear.
+    fn log_overview(&self) -> Vec<String> {
+        let unread = self.panels[PANEL_LOG].cur == crate::LOG_UNREAD;
+        let title = if !self.shown().filter.is_empty() {
+            "No matching runs; esc clears the filter"
+        } else if unread {
+            "All caught up"
+        } else {
+            "Run history"
+        };
+        vec![
+            S_TITLE.render(title),
+            String::new(),
+            "Log keeps finished runs from every folder, including repeated attempts.".into(),
+            "Unread results count in tmux until you view their output.".into(),
+            "[ / ] switches Unread and All; / filters by command, folder, result or agent.".into(),
+            "Live processes stay in Runs (3) and keep their running count.".into(),
+            String::new(),
+            S_DIM.render("Starting a run keeps 40 previous ended runs; D forgets a selected run and its output."),
+        ]
     }
 
     /// overview is the pane with no row under the cursor: the folder and
@@ -587,15 +637,15 @@ impl App {
         let h = |b: &Binding| b.help().key.clone();
         // the Agents tab, there once an agent has started something
         let tabs = if self.panels[PANEL_RUNS].views.len() > RUNS_AGENTS {
-            "a panel's tabs: Taskfile, package.json, Makefile, Compose, Maven; here, everywhere and agents"
+            "a panel's tabs: Taskfile, package.json, Makefile, Compose, Maven; here, everywhere and agents; Log unread and all"
         } else {
-            "a panel's tabs: Taskfile, package.json, Makefile, Compose, Maven; here and everywhere"
+            "a panel's tabs: Taskfile, package.json, Makefile, Compose, Maven; here and everywhere; Log unread and all"
         };
         let mut lines = group(
             "Moving about",
             &[
                 (format!("{} {}", h(&k.next_panel), h(&k.prev_panel)), "the next and the previous panel"),
-                (h(&k.panels), "a panel: 1 Favorites, 2 the project's commands, 3 Runs, 4 Errors"),
+                (h(&k.panels), "a panel: 1 Favorites, 2 the project's commands, 3 Runs, 4 Log"),
                 (h(&k.tabs), tabs),
                 ("↑/k ↓/j g G".into(), "along its rows"),
                 (h(&k.filter), "filter its rows by what you type; esc clears it"),
@@ -672,6 +722,17 @@ impl App {
                 k.stop.clone(),
                 k.restart.clone(),
                 bind("esc", "back"),
+                k.help.clone(),
+                k.quit.clone(),
+            ]);
+        }
+        if self.cur == PANEL_LOG {
+            return KeyHelp::short(vec![
+                k.tabs.clone(),
+                k.filter.clone(),
+                bind("↑/↓", "view + review"),
+                k.restart.clone(),
+                bind("D", "forget"),
                 k.help.clone(),
                 k.quit.clone(),
             ]);

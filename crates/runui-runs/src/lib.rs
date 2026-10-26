@@ -359,15 +359,20 @@ impl Store {
         Path::new(&r.folder).join(SEEN_FILE).exists()
     }
 
+    /// pending_result says a successful, failed or lost run still needs to
+    /// be viewed. The Log inbox and status counts use the same rule.
+    pub fn pending_result(&self, r: &Run) -> bool {
+        matches!(r.state(), State::Exited | State::Lost) && !self.acknowledged(r)
+    }
+
     /// pending_error says a failed or lost run still needs to be viewed.
-    /// This is shared by the Errors panel and the status counts.
     pub fn pending_error(&self, r: &Run) -> bool {
         let errored = match r.state() {
             State::Lost => true,
             State::Exited => r.exit != Some(0),
             _ => false,
         };
-        errored && !self.acknowledged(r)
+        errored && self.pending_result(r)
     }
 
     /// acknowledge dismisses a finished run from status counts, keeping its
@@ -415,18 +420,20 @@ impl Store {
         remove_all(&r.folder)
     }
 
-    /// prune forgets the runs of the command just started in the same
-    /// folder that have ended, and the oldest runs that have ended beyond
-    /// KEPT.
+    /// prune keeps recent attempts, including repeated commands, and
+    /// forgets only ended runs beyond KEPT. Live runs are never pruned.
     fn prune(&self, started: &Run) {
-        let Ok(all) = self.list() else { return };
+        let Ok(mut all) = self.list() else { return };
+        all.sort_by(|a, b| {
+            b.ended.unwrap_or(b.started).cmp(&a.ended.unwrap_or(a.started)).then(b.started.cmp(&a.started))
+        });
         let mut ended = 0;
         for r in all {
             if r.id == started.id || r.live() {
                 continue;
             }
             ended += 1;
-            if (r.dir == started.dir && r.command == started.command) || ended > KEPT {
+            if ended > KEPT {
                 let _ = remove_all(&r.folder);
             }
         }

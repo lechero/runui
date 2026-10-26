@@ -1,7 +1,7 @@
 //! A panel's rows, and the tabs that hold them: ported from rows.go.
 
 use runui_core::golang::to_lower;
-use runui_runs::Run;
+use runui_runs::{Run, State};
 
 /// Kind is what a row is.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -51,7 +51,20 @@ impl Item {
     /// run's whole path.
     pub(crate) fn matches(&self, filter: &str) -> bool {
         let place = if self.kind == Kind::Run { &self.dir } else { &self.place };
-        let text = to_lower(&format!("{} {} {} {place}", self.name, self.command, self.desc));
+        let result = if self.kind == Kind::Run {
+            let state = match self.run.state() {
+                State::Starting => "starting",
+                State::Running => "running",
+                State::Stopped => "stopped",
+                State::Lost => "lost",
+                State::Exited if self.run.exit == Some(0) => "completed success",
+                State::Exited => "failed error",
+            };
+            format!("{state} {}", self.run.agent)
+        } else {
+            String::new()
+        };
+        let text = to_lower(&format!("{} {} {} {place} {result}", self.name, self.command, self.desc));
         to_lower(filter).split_whitespace().all(|word| text.contains(word))
     }
 

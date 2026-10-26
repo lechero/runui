@@ -700,7 +700,7 @@ fn saved_result(w: &World, name: &str, dir: &str, exit: Option<i32>) -> Run {
 }
 
 #[test]
-fn errors_list_pending_failures_from_every_folder() {
+fn log_lists_unread_results_and_finished_history_from_every_folder() {
     let w = new_world();
     saved_result(&w, "here", &w.dir, Some(7));
     let elsewhere = filepath::join(&[&w.home, "projects", "other"]);
@@ -715,54 +715,66 @@ fn errors_list_pending_failures_from_every_folder() {
     let (live, err) = w.runs.start(&w.dir, "live", "echo active; sleep 30");
     assert!(err.is_none(), "{err:?}");
     let mut h = open(&w);
-    let mut names: Vec<_> = h.m.a.panels[PANEL_ERRORS].views[0].all.iter().map(|it| it.name.as_str()).collect();
+    let mut names: Vec<_> = h.m.a.panels[PANEL_LOG].views[0].all.iter().map(|it| it.name.as_str()).collect();
     names.sort_unstable();
-    assert_eq!(names, ["elsewhere", "here", "lost"]);
-    assert_eq!(h.m.a.pending_errors(), 3);
-    assert!(h.screen().contains("[4]─Errors (3)"));
+    assert_eq!(names, ["elsewhere", "here", "lost", "success"]);
+    let mut history: Vec<_> = h.m.a.panels[PANEL_LOG].views[LOG_ALL].all.iter().map(|it| it.name.as_str()).collect();
+    history.sort_unstable();
+    assert_eq!(history, ["elsewhere", "here", "lost", "stopped", "success", "viewed"]);
+    assert_eq!(h.m.a.pending_results(), 4);
+    assert!(h.screen().contains("[4]─Log · Unread (4) - All"));
     assert!(w.runs.get(&live.id).unwrap().live());
     assert!(!w.runs.acknowledged(&live));
     h.keys(&["4", "/"]);
     h.typed("elsewhere");
     h.keys(&["enter"]);
     assert_eq!(h.selected().name, "elsewhere");
-    assert!(h.screen().contains("~/projects/other"));
+    let screen = h.screen();
+    assert!(screen.contains("~/projects/other"));
+    assert!(screen.contains("other › elsewhere"));
 }
 
 #[test]
-fn viewing_an_error_clears_only_that_result_and_keeps_its_output() {
+fn viewing_a_result_clears_only_that_notice_and_keeps_history() {
     let w = new_world();
-    let errors: Vec<_> =
-        ["first", "second", "third"].into_iter().map(|name| saved_result(&w, name, &w.dir, Some(1))).collect();
+    let results: Vec<_> = [("first", Some(0)), ("second", Some(1)), ("third", None)]
+        .into_iter()
+        .map(|(name, exit)| saved_result(&w, name, &w.dir, exit))
+        .collect();
     let mut h = open(&w);
-    assert_eq!(h.m.a.pending_errors(), 3);
+    assert_eq!(h.m.a.pending_results(), 3);
     h.keys(&["4"]);
     let first = h.selected().run.id;
-    assert_eq!(h.m.a.pending_errors(), 2);
+    assert_eq!(h.m.a.pending_results(), 2);
     for _ in 0..3 {
         h.refresh();
         assert_eq!(h.selected().run.id, first);
-        assert_eq!(h.m.a.pending_errors(), 2, "refresh acknowledged another error");
+        assert_eq!(h.m.a.pending_results(), 2, "refresh acknowledged another result");
     }
     assert!(h.screen().contains("reviewed"));
     h.keys(&["j"]);
     let second = h.selected().run.id;
     assert_ne!(first, second);
-    assert_eq!(h.m.a.pending_errors(), 1);
+    assert_eq!(h.m.a.pending_results(), 1);
     h.refresh();
     assert_eq!(h.selected().run.id, second);
     h.keys(&["2"]);
-    assert_eq!(h.m.a.panels[PANEL_ERRORS].views[0].all.len(), 1);
+    assert_eq!(h.m.a.panels[PANEL_LOG].views[0].all.len(), 1);
     h.keys(&["4"]);
-    assert_eq!(h.m.a.pending_errors(), 0);
-    assert!(h.screen().contains("Errors (0)"));
+    assert_eq!(h.m.a.pending_results(), 0);
+    assert!(h.screen().contains("Unread (0)"));
     h.keys(&["2"]);
-    assert!(h.m.a.panels[PANEL_ERRORS].views[0].all.is_empty());
+    assert!(h.m.a.panels[PANEL_LOG].views[0].all.is_empty());
     drop(h);
     let mut reopened = open(&w);
     reopened.keys(&["4"]);
-    assert!(reopened.screen().contains("no pending errors in any folder"));
-    for r in errors {
+    assert!(reopened.screen().contains("all caught up; ] opens history"));
+    reopened.keys(&["]"]);
+    assert_eq!(reopened.m.a.panels[PANEL_LOG].cur, LOG_ALL);
+    assert_eq!(reopened.m.a.shown().all.len(), 3);
+    reopened.keys(&["j", "k"]);
+    assert_eq!(reopened.m.a.pending_results(), 0);
+    for r in results {
         assert!(w.runs.acknowledged(&r));
         assert!(w.runs.get(&r.id).is_ok());
         assert!(fs::read_to_string(r.output()).unwrap().contains(&r.name));
@@ -770,13 +782,109 @@ fn viewing_an_error_clears_only_that_result_and_keeps_its_output() {
 }
 
 #[test]
-fn errors_notice_results_reviewed_in_another_window() {
+fn log_notices_results_reviewed_in_another_window() {
     let w = new_world();
     let r = saved_result(&w, "failure", &w.dir, Some(1));
     let mut h = open(&w);
-    assert_eq!(h.m.a.pending_errors(), 1);
+    assert_eq!(h.m.a.pending_results(), 1);
     w.runs.acknowledge(&r).unwrap();
     h.refresh();
-    assert!(h.m.a.panels[PANEL_ERRORS].views[0].all.is_empty());
-    assert!(h.screen().contains("Errors (0)"));
+    assert!(h.m.a.panels[PANEL_LOG].views[0].all.is_empty());
+    assert!(h.screen().contains("Unread (0)"));
+}
+
+#[test]
+fn log_history_filters_by_result_folder_and_agent() {
+    let w = new_world();
+    let elsewhere = filepath::join(&[&w.home, "other"]);
+    saved_result(&w, "check", &w.dir, Some(0));
+    let mut failed = saved_result(&w, "build", &elsewhere, Some(2));
+    failed.agent = "test-client".into();
+    runs::write_run(&failed).unwrap();
+    let mut h = open(&w);
+    h.keys(&["4", "]", "/"]);
+    h.typed("failed other test-client");
+    h.keys(&["enter"]);
+    assert_eq!(h.m.a.shown().shown.len(), 1);
+    assert_eq!(h.selected().run.id, failed.id);
+    assert!(h.screen().contains("test-client"));
+    h.keys(&["esc", "/"]);
+    h.typed("completed");
+    h.keys(&["enter"]);
+    assert_eq!(h.m.a.shown().shown.len(), 1);
+    assert_eq!(h.selected().name, "check");
+    assert_eq!(h.m.a.pending_results(), 0);
+    h.keys(&["esc", "/"]);
+    h.typed("no-matching-run");
+    h.keys(&["enter"]);
+    let screen = h.screen();
+    assert!(screen.contains("No matching runs"));
+    assert!(!screen.contains("All caught up"));
+}
+
+#[test]
+fn log_sorts_by_finish_time_and_keeps_selection_when_new_results_arrive() {
+    let w = new_world();
+    let mut slow = saved_result(&w, "slow", &w.dir, Some(0));
+    slow.started -= chrono::TimeDelta::hours(2);
+    slow.ended = Some(Utc::now() + chrono::TimeDelta::seconds(1));
+    runs::write_run(&slow).unwrap();
+    saved_result(&w, "quick", &w.dir, Some(1));
+    let mut h = open(&w);
+    h.keys(&["4"]);
+    assert_eq!(h.selected().name, "slow");
+    let mut newest = saved_result(&w, "newest", &w.dir, Some(0));
+    newest.ended = Some(Utc::now() + chrono::TimeDelta::seconds(2));
+    runs::write_run(&newest).unwrap();
+    h.refresh();
+    assert_eq!(h.selected().name, "slow");
+    assert_eq!(h.m.a.pending_results(), 2);
+    assert!(!w.runs.acknowledged(&newest));
+    h.keys(&["]"]);
+    assert_eq!(h.selected().name, "slow", "All keeps its previous selection");
+    assert_eq!(h.m.a.shown().all[0].name, "newest");
+    h.keys(&["g"]);
+    assert_eq!(h.selected().name, "newest");
+    h.refresh();
+    assert_eq!(h.selected().name, "newest");
+    assert_eq!(h.m.a.pending_results(), 1);
+    h.keys(&["["]);
+    assert_eq!(h.selected().name, "quick");
+    assert_eq!(h.m.a.pending_results(), 0);
+}
+
+#[test]
+fn rerunning_from_log_follows_the_new_run_and_keeps_the_previous_attempt() {
+    let w = new_world();
+    let previous = saved_result(&w, "again", &w.dir, Some(0));
+    let mut h = open(&w);
+    h.keys(&["4", "R"]);
+    assert_eq!(h.m.a.cur, PANEL_RUNS);
+    let current = h.selected().run.id;
+    assert_ne!(current, previous.id);
+    h.wait_for("exited 0");
+    assert!(w.runs.get(&previous.id).is_ok());
+    h.keys(&["4", "]"]);
+    assert_eq!(h.m.a.shown().all.len(), 2);
+    assert!(h.m.a.shown().all.iter().any(|it| it.run.id == previous.id));
+}
+
+#[test]
+fn log_fits_small_terminals_and_help_does_not_review_results() {
+    let w = new_world();
+    let r = saved_result(&w, "success", &w.dir, Some(0));
+    let mut h = open(&w);
+    h.keys(&["?"]);
+    h.m.a.jump(PANEL_LOG as i32);
+    h.screen();
+    assert!(!w.runs.acknowledged(&r));
+    h.keys(&["x"]);
+    assert!(w.runs.acknowledged(&r));
+    for (width, height) in [(120, 36), (60, 20), (30, 8)] {
+        h.send(tea::msg(WindowSizeMsg { width, height }));
+        let frame = h.screen();
+        assert_eq!(frame.lines().count(), height as usize);
+        assert!(frame.lines().all(|line| ansi::string_width(line) <= width));
+        assert!(frame.contains("Log"));
+    }
 }

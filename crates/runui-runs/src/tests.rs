@@ -184,7 +184,7 @@ fn a_command_that_cant_start() {
 }
 
 #[test]
-fn starting_again_forgets_the_runs_that_ended() {
+fn starting_again_keeps_earlier_attempts_in_order() {
     let (_t, root) = tempdir();
     let s = new_store(&root);
     let (_d, dir) = tempdir();
@@ -197,10 +197,11 @@ fn starting_again_forgets_the_runs_that_ended() {
     let list = s.list().unwrap();
     let ids: Vec<&str> = list.iter().map(|r| r.id.as_str()).collect();
     assert!(
-        list.len() == 2 && list[0].id == second.id && list[1].id == other.id,
-        "got {ids:?}, want {} then {}",
+        list.len() == 3 && list[0].id == second.id && list[1].id == other.id && list[2].id == first.id,
+        "got {ids:?}, want {}, {}, {}",
         second.id,
-        other.id
+        other.id,
+        first.id
     );
 }
 
@@ -418,4 +419,88 @@ fn pending_errors_exclude_live_stopped_successful_and_viewed_runs() {
         fs::write(filepath::join(&[&run.folder, SEEN_FILE]), "").unwrap();
         assert!(!store.pending_error(&run), "a reviewed {name} was still counted");
     }
+}
+
+#[test]
+fn pending_results_include_successes_and_failures_until_viewed() {
+    let (_t, root) = tempdir();
+    let store = new_store(&root);
+    let ended = Some(Utc::now());
+    for (name, run, expected) in [
+        ("starting", Run { live: true, ..Default::default() }, false),
+        ("running", Run { live: true, pid: 123, ..Default::default() }, false),
+        ("success", Run { ended, exit: Some(0), ..Default::default() }, true),
+        ("failure", Run { ended, exit: Some(9), ..Default::default() }, true),
+        ("unknown_exit", Run { ended, ..Default::default() }, true),
+        ("lost", Run::default(), true),
+        ("stopped", Run { ended, exit: Some(1), stopped: true, ..Default::default() }, false),
+    ] {
+        let run = run.with_folder(&filepath::join(&[&store.root, name]));
+        assert_eq!(store.pending_result(&run), expected, "{name}");
+        fs::create_dir_all(&run.folder).unwrap();
+        fs::write(filepath::join(&[&run.folder, SEEN_FILE]), "").unwrap();
+        assert!(!store.pending_result(&run), "a reviewed {name} was still counted");
+    }
+}
+
+#[test]
+fn repeated_commands_keep_independent_results_and_output() {
+    let (_t, root) = tempdir();
+    let s = new_store(&root);
+    let first = start(&s, &root, "attempt", "echo kept; exit 3");
+    let first = wait_for(&s, &first.id, "ended", |r| r.ended.is_some());
+    s.acknowledge(&first).unwrap();
+    let second = start(&s, &root, "attempt", "echo kept; exit 3");
+    let second = wait_for(&s, &second.id, "ended", |r| r.ended.is_some());
+    assert_eq!(s.list().unwrap().len(), 2);
+    assert_eq!(output(&first), "kept\n");
+    assert_eq!(output(&second), "kept\n");
+    assert!(!s.pending_result(&first));
+    assert!(s.pending_result(&second));
+}
+
+#[test]
+fn history_prunes_only_the_oldest_finished_attempts() {
+    let (_t, root) = tempdir();
+    let s = new_store(&root);
+    let started = Run { id: "new".into(), dir: root.clone(), command: "build".into(), ..Default::default() };
+    let now = Utc::now();
+    for i in 0..KEPT + 2 {
+        let folder = filepath::join(&[&s.root, &format!("attempt-{i:02}")]);
+        fs::create_dir_all(&folder).unwrap();
+        let run = Run {
+            id: format!("attempt-{i:02}"),
+            dir: root.clone(),
+            command: "build".into(),
+            started: now - chrono::TimeDelta::seconds(i as i64),
+            ended: Some(now),
+            exit: Some(0),
+            ..Default::default()
+        }
+        .with_folder(&folder);
+        write_run(&run).unwrap();
+        fs::write(run.output(), format!("attempt {i}")).unwrap();
+    }
+    // A long command that just ended belongs in recent history even
+    // though it started before every other attempt.
+    let folder = filepath::join(&[&s.root, "long-run"]);
+    fs::create_dir_all(&folder).unwrap();
+    let long = Run {
+        id: "long-run".into(),
+        started: now - chrono::TimeDelta::days(1),
+        ended: Some(now + chrono::TimeDelta::seconds(1)),
+        exit: Some(0),
+        ..Default::default()
+    }
+    .with_folder(&folder);
+    write_run(&long).unwrap();
+    fs::write(long.output(), "long run finished").unwrap();
+    s.prune(&started);
+    let kept = s.list().unwrap();
+    assert_eq!(kept.len(), KEPT);
+    assert_eq!(kept.first().unwrap().id, "attempt-00");
+    assert_eq!(kept.last().unwrap().id, "long-run");
+    assert!(kept.iter().any(|r| r.id == format!("attempt-{:02}", KEPT - 2)));
+    assert!(!kept.iter().any(|r| r.id == format!("attempt-{:02}", KEPT - 1)));
+    assert!(kept.iter().all(|r| fs::read_to_string(r.output()).is_ok()));
 }
