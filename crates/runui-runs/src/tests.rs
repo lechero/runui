@@ -397,3 +397,25 @@ fn output_of_a_run_not_there_yet() {
     assert!(o.read().is_err(), "no file, no error");
     assert!(o.lines().is_empty(), "lines from nowhere");
 }
+
+#[test]
+fn pending_errors_exclude_live_stopped_successful_and_viewed_runs() {
+    let (_t, root) = tempdir();
+    let store = new_store(&root);
+    let ended = Some(Utc::now());
+    for (name, run, expected) in [
+        ("starting", Run { live: true, ..Default::default() }, false),
+        ("running", Run { live: true, pid: 123, ..Default::default() }, false),
+        ("success", Run { ended, exit: Some(0), ..Default::default() }, false),
+        ("failure", Run { ended, exit: Some(9), ..Default::default() }, true),
+        ("unknown_exit", Run { ended, ..Default::default() }, true),
+        ("lost", Run::default(), true),
+        ("stopped", Run { ended, exit: Some(1), stopped: true, ..Default::default() }, false),
+    ] {
+        let run = run.with_folder(&filepath::join(&[&store.root, name]));
+        assert_eq!(store.pending_error(&run), expected, "{name}");
+        fs::create_dir_all(&run.folder).unwrap();
+        fs::write(filepath::join(&[&run.folder, SEEN_FILE]), "").unwrap();
+        assert!(!store.pending_error(&run), "a reviewed {name} was still counted");
+    }
+}

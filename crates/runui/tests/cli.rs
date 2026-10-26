@@ -230,3 +230,34 @@ fn status_counts_successful_and_failed_runs() {
     assert_eq!(code, EXIT_OK, "{err}");
     assert_eq!(out, "running=0 completed=0 errored=0\n");
 }
+
+#[test]
+fn tmux_hides_reviewed_errors_while_other_counts_remain() {
+    let s = sandbox();
+    let store = runui_runs::Store { root: filepath::join(&[&s.root, "state", "runui", "runs"]), ..Default::default() };
+    let mut results = Vec::new();
+    for (name, exit) in [("success", 0), ("failure", 9)] {
+        let folder = filepath::join(&[&store.root, name]);
+        fs::create_dir_all(&folder).unwrap();
+        let mut r = runui_runs::Run::default().with_folder(&folder);
+        r.id = name.into();
+        r.dir = s.dir.clone();
+        r.command = format!("echo {name}");
+        r.started = chrono::Utc::now();
+        r.ended = Some(chrono::Utc::now());
+        r.exit = Some(exit);
+        runui_runs::write_run(&r).unwrap();
+        results.push(r);
+    }
+    store.acknowledge(&results[1]).unwrap();
+    let (code, out, err) = s.run(&["status"]);
+    assert_eq!(code, EXIT_OK, "{err}");
+    assert_eq!(out, "running=0 completed=1 errored=0\n");
+    let (code, out, err) = s.run(&["status", "tmux"]);
+    assert_eq!(code, EXIT_OK, "{err}");
+    assert_eq!(out, " #[fg=#a6e3a1]✓ 1#[default]\n");
+    store.acknowledge(&results[0]).unwrap();
+    let (code, out, err) = s.run(&["status", "tmux"]);
+    assert_eq!(code, EXIT_OK, "{err}");
+    assert_eq!(out, "\n");
+}

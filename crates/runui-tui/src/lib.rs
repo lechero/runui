@@ -3,8 +3,9 @@
 //! project's own commands (a tab for each kind of file: Taskfile,
 //! package.json, Makefile, Compose, Maven, with the ones in the folders
 //! under it, three deep) and 3 the runs (here, everywhere, and the ones
-//! agents started through runui mcp, once there are some), and on the
-//! right the pane, showing what the row under the cursor runs and, once it
+//! agents started through runui mcp, once there are some), 4 the pending
+//! errors from every folder. On the right the pane shows what the row
+//! under the cursor runs and, once it
 //! has run, its output, followed as it's printed. A command runs under a
 //! supervisor of its own and keeps running once runui quits; the next
 //! runui finds it, its output and all, and stops it. Ported from
@@ -39,6 +40,7 @@ pub trait Runner: Send + Sync {
     fn stop(&self, r: &Run) -> anyhow::Result<()>;
     fn remove(&self, r: &Run) -> anyhow::Result<()>;
     fn acknowledge(&self, r: &Run) -> anyhow::Result<()>;
+    fn pending_error(&self, r: &Run) -> bool;
 }
 
 impl Runner for runs::Store {
@@ -56,6 +58,9 @@ impl Runner for runs::Store {
     }
     fn acknowledge(&self, r: &Run) -> anyhow::Result<()> {
         runs::Store::acknowledge(self, r)
+    }
+    fn pending_error(&self, r: &Run) -> bool {
+        runs::Store::pending_error(self, r)
     }
 }
 
@@ -110,6 +115,7 @@ enum Focus {
 const PANEL_FAVORITES: usize = 0;
 const PANEL_PROJECT: usize = 1;
 const PANEL_RUNS: usize = 2;
+const PANEL_ERRORS: usize = 3;
 
 // The Runs panel's tabs: here, everywhere, and what agents started.
 const RUNS_EVERYWHERE: usize = 1;
@@ -223,6 +229,11 @@ impl Model {
                         View::new("Here", "nothing run here yet"),
                         View::new("Everywhere", "nothing running, nothing run"),
                     ],
+                    cur: 0,
+                },
+                Panel {
+                    name: "Errors".into(),
+                    views: vec![View::new("Errors", "no pending errors in any folder")],
                     cur: 0,
                 },
             ],
@@ -525,6 +536,7 @@ impl App {
         self.panels[PANEL_RUNS].views[0].set(here);
         self.panels[PANEL_RUNS].views[RUNS_EVERYWHERE].set(all);
         self.set_agents(agents);
+        self.set_errors();
         self.sync_output();
     }
 
@@ -545,6 +557,24 @@ impl App {
             p.views.push(View::new("Agents", "nothing an agent started"));
         }
         p.views[RUNS_AGENTS].set(agents);
+    }
+
+    /// set_errors lists the same pending failures the status bar counts.
+    /// Keep the viewed row while reading it, so a refresh cannot select and
+    /// acknowledge the next error on its own.
+    fn set_errors(&mut self) {
+        let viewed = if self.cur == PANEL_ERRORS { self.selected().map(|it| it.run.id) } else { None };
+        let items = self.panels[PANEL_RUNS].views[RUNS_EVERYWHERE]
+            .all
+            .iter()
+            .filter(|it| self.cfg.runs.pending_error(&it.run) || viewed.as_deref() == Some(&it.run.id))
+            .cloned()
+            .collect();
+        self.panels[PANEL_ERRORS].views[0].set(items);
+    }
+
+    fn pending_errors(&self) -> usize {
+        self.runs.iter().filter(|r| self.cfg.runs.pending_error(r)).count()
     }
 
     /// shown is the view showing in the panel with the focus.
@@ -762,7 +792,11 @@ impl App {
         if i < 0 || i as usize >= self.panels.len() {
             return;
         }
+        let leaving_errors = self.cur == PANEL_ERRORS && i as usize != PANEL_ERRORS;
         (self.cur, self.focus) = (i as usize, Focus::Side);
+        if leaving_errors {
+            self.set_errors();
+        }
         self.sync_output();
     }
 
