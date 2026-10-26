@@ -23,6 +23,7 @@ struct Options {
     variables: BTreeMap<String, String>,
     positional: Vec<String>,
     scope: Scope,
+    project: Option<String>,
 }
 
 fn parse(command: &str, args: &[String]) -> Result<Options, Failure> {
@@ -53,13 +54,22 @@ fn parse(command: &str, args: &[String]) -> Result<Options, Failure> {
             arg.split_once('=').map_or((arg.as_str(), None), |(key, value)| (key, Some(value.to_string())));
         if !matches!(
             name,
-            "-C" | "--C" | "--query" | "--fingerprint" | "--mode" | "--limit" | "--offset" | "--var" | "--scope"
+            "-C" | "--C"
+                | "--query"
+                | "--fingerprint"
+                | "--mode"
+                | "--limit"
+                | "--offset"
+                | "--var"
+                | "--scope"
+                | "--project"
         ) {
             return Err(Failure::Usage(format!("unknown catalog option {name}")));
         }
         let applicable = match name {
             "--query" | "--mode" | "--limit" | "--offset" => matches!(command, "commands" | "find"),
             "--fingerprint" | "--var" => command == "run",
+            "--project" => matches!(command, "inspect" | "run"),
             _ => true,
         };
         if !applicable {
@@ -90,6 +100,8 @@ fn parse(command: &str, args: &[String]) -> Result<Options, Failure> {
             }
             "--scope" if value == "project" => result.scope = Scope::Project,
             "--scope" if value == "workspace" => result.scope = Scope::Workspace,
+            "--scope" if value == "registered" => result.scope = Scope::Registered,
+            "--project" => result.project = Some(value),
             "--scope" => return Err(Failure::Usage(format!("scope {value:?} is not available yet"))),
             "--var" => {
                 let (name, value) =
@@ -102,6 +114,12 @@ fn parse(command: &str, args: &[String]) -> Result<Options, Failure> {
     if result.query.is_some() && !result.positional.is_empty() {
         return Err(Failure::Usage("provide either --query or positional search text".into()));
     }
+    if matches!(command, "inspect" | "run") && result.scope == Scope::Registered && result.project.is_none() {
+        return Err(Failure::Usage("registered inspect/run requires --project PROJECT_ID from discovery".into()));
+    }
+    if result.project.is_some() && result.scope != Scope::Registered {
+        return Err(Failure::Usage("--project requires registered scope".into()));
+    }
     Ok(result)
 }
 
@@ -113,13 +131,23 @@ fn workspace(directory: Option<&str>) -> anyhow::Result<Workspace> {
     let absolute = filepath::abs(&directory).map_err(anyhow::Error::from)?;
     let home = filepath::user_home_dir().unwrap_or_default();
     let dir = runui_project::root(&absolute, &home);
-    Ok(Workspace { repo: runui_project::context_root(&dir, &home), dir, home, invocation_dir: absolute })
+    Ok(Workspace {
+        repo: runui_project::context_root(&dir, &home),
+        dir,
+        home,
+        invocation_dir: absolute,
+        index: runui_catalog::index::Index::default(),
+    })
 }
 
 pub(super) fn dispatch(command: &str, args: &[String], output: &mut dyn Write) -> Result<(), Failure> {
     let options = parse(command, args)?;
     let workspace = workspace(options.directory.as_deref())?;
-    let snapshot = workspace.catalog_scoped(options.scope)?;
+    let snapshot = if matches!(command, "inspect" | "run") {
+        workspace.catalog_selection(options.scope, options.project.as_deref())?
+    } else {
+        workspace.catalog_scoped(options.scope)?
+    };
     match command {
         "commands" | "find" => {
             if !options.args.is_empty() || !options.variables.is_empty() || options.fingerprint.is_some() {
@@ -146,11 +174,12 @@ pub(super) fn dispatch(command: &str, args: &[String], output: &mut dyn Write) -
                 for entry in entries {
                     writeln!(
                         output,
-                        "{}  {}  {}  {}",
+                        "{}  {}  {}  {}  {}",
                         entry.id,
                         text_line(&entry.name),
                         text_line(&entry.source),
-                        text_line(&entry.relative_directory)
+                        text_line(&entry.relative_directory),
+                        text_line(&entry.project_directory)
                     )
                     .map_err(anyhow::Error::from)?;
                 }

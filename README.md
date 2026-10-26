@@ -68,9 +68,18 @@ Use `tab` / `shift+tab` between panels and `[` / `]` between a panel's tabs. Pre
 
 Press **`ctrl+p`** to search all sources and favorites together. Try `test`, `source:npm test`, or `dir:apps/web`. The preview shows the exact command, working directory, source location, and tool availability. `/` still filters the current panel tab.
 
-In the palette, `alt+s` switches **Project / Workspace**, and `tab` switches to **Recent invocations**, which retains exact commands after their output is pruned. `enter` runs the selection or focuses its existing live run; `alt+r` starts another. `alt+u` selects a recent invocation's current definition, keeping repeat and updated defaults separate. `esc` restores your panel filter and selection. Use `ctrl+v` for scrollable details, `alt+m` to star, `ctrl+y` to copy, `ctrl+o` to open the source, or `ctrl+t` to open a terminal. Terminal actions use tmux or a configured `RUNUI_TERMINAL` launcher. [Catalog and CLI reference](docs/command-catalog.md).
+In the palette, `alt+s` switches **Project / Workspace / Registered**, and `tab` switches to **Recent invocations**, which retains exact commands after their output is pruned. `enter` runs the selection or focuses its existing live run; `alt+r` starts another. `alt+u` selects a recent invocation's current definition, keeping repeat and updated defaults separate. `esc` restores your panel filter and selection. Use `ctrl+v` for scrollable details, `f2` for discovery diagnostics, `alt+m` to star, `ctrl+y` to copy, `ctrl+o` to open the source, or `ctrl+t` to open a terminal. Terminal actions use tmux or a configured `RUNUI_TERMINAL` launcher. [Catalog and CLI reference](docs/command-catalog.md).
 
-Press `m` in a panel to star a command, or `a` to save your own named shell command. Runui notices edits to files it reads; `r` rescans, including newly added nested files. Registered-project search, Composer, Cargo, shell recall, and input presets remain in the [integration plan](docs/command-discovery-plan.md).
+Press **`alt+p`** in the palette to choose registered projects. `enter` searches one checkout, `ctrl+o` opens it in the main panels, `alt+a` registers a directory, and `alt+d` forgets a registration. Duplicate names are qualified by checkout path and branch. Registrations are explicit; opening a folder does not add it. Forgetting keeps its files, favorites, runs and output.
+
+```sh
+runui projects add /path/to/project --name App
+runui projects --json
+runui find --scope registered test --json
+runui run --scope registered --project PROJECT_ID COMMAND_ID --json
+```
+
+Press `m` in a panel to star a command, or `a` to save your own named shell command. Runui notices edits to files it reads; `r` rescans, including newly added nested files. Composer, Cargo, shell recall, and input presets remain in the [integration plan](docs/command-discovery-plan.md).
 
 Declared pnpm/npm/Yarn workspace packages can be deeper than three levels. Workspace scope searches the enclosing declaration while each command keeps its own cwd. Exclusions control package membership; `.runuiignore` uses Git-ignore syntax to exclude discovery paths, including declared members. Repository `.gitignore` files apply to incidental folders; a declared member overrides them with a notice. Nested repositories, symlinks, dependencies and generated folders stay traversal boundaries.
 
@@ -123,8 +132,8 @@ Use your installed paths (`command -v runui`), including `/home/you/…` on Linu
 
 | Tool | Inputs | Result |
 | --- | --- | --- |
-| `list_commands` | Optional `query`, `scope`, `limit`, `offset` | A catalog page (200 by default, up to 500), with IDs, fingerprints, provenance, exact commands/directories, diagnostics, and `next_offset`. Scope is `project` or `workspace`. |
-| `start_run` | Either `id` with optional `fingerprint`, `inputs`; or raw `command` with optional `directory`. Optional `name` in either form. | A supervised run and its ID. Catalog launches revalidate the definition; literal `inputs.args` and supported `inputs.variables` are prepared before launch. |
+| `list_commands` | Optional `query`, `scope`, `limit`, `offset` | A catalog page (200 by default, up to 500), with IDs, fingerprints, provenance, exact commands/directories, diagnostics, and `next_offset`. Scope is `project`, `workspace`, or `registered`. |
+| `start_run` | Either `id` with optional `fingerprint`, `inputs`; or raw `command` with optional `directory`. Registered ID launches require `scope: registered` and `project` from the entry's `registry_id`. Optional `name` in either form. | A supervised run and its ID. Catalog launches revalidate only the selected checkout; literal `inputs.args` and supported `inputs.variables` are prepared before launch. |
 | `list_runs` | Optional `directory` | Runs from every folder, newest first; the optional filter matches one exact working directory. |
 | `get_run` | `id` | State, timestamps, exit code, agent, output path, and other metadata. |
 | `read_output` | `id`; optional `lines` | Latest plain-text tail and state: 100 lines by default, up to 500 lines and 64 KiB. Poll again to follow output. |
@@ -168,7 +177,8 @@ If your shell and tmux disagree, use the absolute path from `command -v runui` i
 | `[` / `]` | Switch the current panel's tabs. |
 | `j` / `k`, `g` / `G` | Move through rows. |
 | `/`, `esc` | Filter the current tab; clear the filter. |
-| `ctrl+p` | Open the shared command palette; `tab` switches Commands / Recent, `alt+s` switches Project / Workspace. |
+| `ctrl+p` | Open the palette; `tab` switches Commands / Recent, `alt+s` switches scope, `alt+p` opens projects. |
+| `ctrl+v`, `f2` in the palette | Scrollable command details or discovery diagnostics. |
 | `enter` | Run a command; on a run, focus its output. |
 | `s` / `R` | Stop or restart a run. |
 | `m` / `a` / `e` / `D` | Star, add, edit, or remove; `D` also forgets an ended run. |
@@ -182,6 +192,7 @@ If your shell and tmux disagree, use the absolute path from `command -v runui` i
 | Data | Default location | Override |
 | --- | --- | --- |
 | Favorites | `~/.config/runui/favorites.json` | `$XDG_CONFIG_HOME/runui/favorites.json` |
+| Registered projects | `~/.config/runui/projects-v1.json` | Beside the selected favorites file. |
 | Runs and output | `~/.local/state/runui/runs` | `$XDG_STATE_HOME/runui/runs` |
 | Usage recall | `~/.local/state/runui/runs/catalog-v1.json` | Under the selected runs directory. |
 

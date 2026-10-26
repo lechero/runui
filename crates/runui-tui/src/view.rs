@@ -656,6 +656,8 @@ impl App {
                 ("↑/k ↓/j g G".into(), "along its rows"),
                 (h(&k.filter), "filter its rows by what you type; esc clears it"),
                 ("ctrl+p".into(), "search the command catalog and recent invocations; esc returns"),
+                ("alt+s / alt+p".into(), "in the palette: switch scope or choose registered projects"),
+                ("ctrl+v / f2".into(), "in the palette: command details or discovery diagnostics"),
                 (
                     format!("{}, enter on a run", h(&k.focus_pane)),
                     "the output takes the keys, to scroll it; esc goes back",

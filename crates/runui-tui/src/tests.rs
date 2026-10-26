@@ -990,6 +990,83 @@ fn queued_palette_refresh_keeps_the_latest_usable_snapshot_visible() {
 }
 
 #[test]
+fn registered_palette_launches_the_chosen_checkout_and_keeps_project_panels() {
+    let world = new_world();
+    let registry = runui_catalog::registry::Store::beside_favorites(&world.favs);
+    let mut projects = Vec::new();
+    for (folder, branch) in [("alpha/app", "main"), ("beta/app", "feature")] {
+        let directory = filepath::join(&[&world.home, folder]);
+        fs::create_dir_all(filepath::join(&[&directory, ".git"])).unwrap();
+        fs::write(filepath::join(&[&directory, ".git/HEAD"]), format!("ref: refs/heads/{branch}\n")).unwrap();
+        fs::write(filepath::join(&[&directory, "Makefile"]), "test:\n\t@pwd > cwd.txt\n").unwrap();
+        projects.push(registry.add(&directory, &world.home, Some("App")).unwrap());
+    }
+    let mut h = open(&world);
+    h.keys(&["ctrl+p", "alt+s", "alt+s"]);
+    h.typed("source:make project:beta/app test");
+    h.wait_for("make test");
+    assert!(h.screen().contains("Registered"));
+    assert!(h.screen().contains("feature"));
+    assert!(world.runs.list().unwrap().is_empty());
+    h.keys(&["alt+m"]);
+    assert_eq!(world.favs_now().for_dir(&projects[1].directory).len(), 1);
+    assert!(world.favs_now().for_dir(&world.dir).is_empty());
+    h.keys(&["enter"]);
+    h.wait_for("exited 0");
+    let actual = fs::read_to_string(filepath::join(&[&projects[1].directory, "cwd.txt"])).unwrap();
+    assert!(runui_catalog::same_directory(actual.trim(), &projects[1].directory));
+    assert!(!std::path::Path::new(&projects[0].directory).join("cwd.txt").exists());
+    assert_eq!(h.m.a.cfg.dir, world.dir);
+    assert_eq!(h.m.a.panels[PANEL_RUNS].cur, RUNS_EVERYWHERE);
+}
+
+#[test]
+fn project_picker_registers_searches_opens_and_forgets_without_deleting_data() {
+    let world = new_world();
+    let mut h = open(&world);
+    h.keys(&["ctrl+p"]);
+    h.typed("source:make build");
+    h.keys(&["alt+p"]);
+    assert!(h.screen().contains("Registered projects"));
+    h.keys(&["alt+a", "enter"]);
+    h.wait_for("1 explicit checkouts");
+    let registry = runui_catalog::registry::Store::beside_favorites(&world.favs);
+    assert_eq!(registry.load().unwrap().projects.len(), 1);
+    h.keys(&["down", "enter"]);
+    h.wait_for("make build");
+    assert!(h.screen().contains("Registered / app"));
+    h.keys(&["alt+p", "down", "ctrl+o"]);
+    assert!(h.m.a.palette.is_none());
+    assert!(runui_catalog::same_directory(&h.m.a.cfg.dir, &world.dir));
+    h.keys(&["ctrl+p", "alt+p", "down", "alt+d"]);
+    h.wait_for("0 explicit checkouts");
+    assert!(registry.load().unwrap().projects.is_empty());
+    assert!(std::path::Path::new(&world.dir).join("Makefile").exists());
+    h.keys(&["esc", "esc"]);
+}
+
+#[test]
+fn picker_cancel_keeps_the_command_query_and_surfaces_registry_errors() {
+    let world = new_world();
+    let mut h = open(&world);
+    h.keys(&["ctrl+p"]);
+    h.typed("source:make build");
+    h.keys(&["alt+p"]);
+    h.typed("another project");
+    h.keys(&["esc"]);
+    assert!(h.screen().contains("source:make build"));
+    let registry = runui_catalog::registry::Store::beside_favorites(&world.favs);
+    fs::create_dir_all(registry.file().parent().unwrap()).unwrap();
+    fs::write(registry.file(), "{damaged").unwrap();
+    h.keys(&["alt+p"]);
+    assert!(h.screen().contains("reading"));
+    h.send(tea::msg(WindowSizeMsg { width: 60, height: 16 }));
+    h.keys(&["ctrl+v"]);
+    assert!(h.screen().lines().count() <= 16);
+    h.keys(&["esc", "esc"]);
+}
+
+#[test]
 fn workspace_palette_keeps_project_panels_and_executes_in_the_selected_members_directory() {
     let world = new_world();
     fs::write(filepath::join(&[&world.dir, "package.json"]), r#"{"workspaces":["packages/**"]}"#).unwrap();
@@ -1079,6 +1156,10 @@ fn a_palette_overlay_does_not_review_new_results_hidden_behind_it() {
     h.refresh();
     let finished = world.runs.get(&run.id).unwrap();
     assert!(world.runs.pending_result(&finished));
+    h.keys(&["f2"]);
+    assert!(h.screen().contains("Discovery diagnostics"));
+    assert!(world.runs.pending_result(&finished));
+    h.keys(&["f2"]);
     h.keys(&["esc"]);
     assert!(!world.runs.pending_result(&finished));
 }

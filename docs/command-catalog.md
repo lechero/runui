@@ -1,6 +1,6 @@
 # Shared command catalog
 
-`ctrl+p`, the catalog CLI, and MCP use the same definitions, IDs, fingerprints, and preparation. This covers the existing five sources, saved favorites, persisted runs, and recent runui invocations in Project and Workspace scopes. The [implementation audit](implementation-status.md) tracks the remaining complete-v1 work.
+`ctrl+p`, the catalog CLI, and MCP use the same definitions, IDs, fingerprints, and preparation. This covers the existing five sources, saved favorites, persisted runs, and recent runui invocations in Project, Workspace and Registered scopes. The [implementation audit](implementation-status.md) tracks the remaining complete-v1 work.
 
 ## Find and understand
 
@@ -10,6 +10,8 @@ runui find -C /path/to/project 'dir:apps/web build'
 runui find -C /path/to/project --mode recent --json
 runui find -C /path/to/project/packages/web --scope workspace test --json
 runui inspect -C /path/to/project COMMAND_ID --json
+runui projects add /path/to/project --name App --json
+runui find --scope registered test --json
 ```
 
 `commands` and `find` have the same search contract. Text matches names, descriptions, directories and source information. Facets are `project:`, `source:`, `dir:`, `kind:`, and `state:`. Quote a complete token or escape its colon to search it literally (`"source:npm"`, `source\:npm`); quote a facet value containing spaces (`dir:"apps/web client"`). Unknown facet names are literal text. Exact name matches rank ahead of weak description matches; favorites and usage break comparable ties.
@@ -23,6 +25,20 @@ Members can be deeper than the three-level incidental scan. Both scans share lim
 The selected project, enclosing workspace, checkout boundary and invocation folder serve different purposes. Scope changes search breadth; the recipe's cwd stays fixed. Equal text/favorite/usage matches prefer folders nearest the invocation. Workspace favorites are projected from existing folder keys without rewriting them; aliases for one execution identity are merged.
 
 Membership references: [pnpm workspace settings](https://pnpm.io/settings#packages), [npm workspaces](https://docs.npmjs.com/cli/configuring-npm/package-json#workspaces), and [Yarn workspaces](https://yarnpkg.com/features/workspaces). Pattern and ignore parsing use the [glob](https://docs.rs/glob/latest/glob/) and [ignore](https://docs.rs/ignore/latest/ignore/) crates, with the limits above.
+
+## Registered projects
+
+`runui projects add DIR [--name NAME]` registers the canonical checkout root, or the enclosing declared workspace outside Git. Symbolic aliases of the same checkout deduplicate; different worktrees keep different IDs. `runui projects [--json]` lists directory availability and branch labels. `runui projects forget ID_OR_DIR` removes the registration, retaining source files, favorites and all runs/output. Nothing is added automatically. Branch labels are read from Git's local HEAD/gitfile metadata and do not define identity; [Git documents this layout](https://git-scm.com/docs/gitrepository-layout).
+
+In the palette, `alt+p` opens a separate project picker with its own filter. `enter` searches the selected checkout (or All), preserving the command query and the main project panels. `ctrl+o` explicitly opens the checkout in those panels. `alt+a` opens a directory field (including `~/` paths); `alt+d` forgets the selected registration. `ctrl+v` exposes scrollable details. In registered command results, path and branch qualify duplicate project names. Starring a registered command saves it under that checkout's existing favorite namespace.
+
+The registry is `projects-v1.json` beside the favorites file, normally `~/.config/runui/projects-v1.json`. It has schema version 1, up to 64 explicit checkouts, a 1 MiB size limit, atomic mode-0600 writes, a separate writer lock and corrupt-state backup before an explicit write repairs it. Unknown versions are never overwritten. The in-process discovery cache is disposable; forgetting removes its association without changing project data.
+
+Four background workers perform passive indexing and metadata refresh. They retain ready cached results, cancel obsolete generations, and check dependencies at most once per second per checkout. A missing, retargeted or slow checkout does not remove the others' results. Initial CLI/MCP registered searches wait up to two seconds and then return ready results with `complete: false` and indexing/project diagnostics. The TUI receives partial results without waiting for the whole registry. Press `f2` to inspect discovery diagnostics.
+
+Each checkout keeps the source scan budgets above. Registered results are additionally limited to 10,000 entries per checkout and 50,000 total, with explicit diagnostics. Within per-checkout clipping, recall, favorites and used commands take priority. Selecting one checkout in the picker filters before the global limit and result pagination. Open the checkout and use Project/Workspace scope to narrow an oversized search further. Cancellation is checked between passive directory/file reads; an individual filesystem call is subject to the operating system's behavior. No native metadata, install, shell startup or project command runs during indexing.
+
+Registered entries carry `registry_id`, checkout, cwd, branch, definition ID and fingerprint. For CLI `inspect`/`run`, pass `--scope registered --project PROJECT_ID` using that `registry_id`. MCP `start_run` uses `scope: registered` and `project: PROJECT_ID`. Fresh preparation reads only the selected checkout and revalidates its fingerprint and physical directory; another missing registration does not block launch. IDs remain identical to the same definition in Project/Workspace scope. A retargeted registration requires explicitly registering its new location.
 
 Each entry includes the source and origin, physical checkout and execution directory, entry file and defining file/location when known, availability, exact command, recipe, favorite aliases, usage, and run association. Included Taskfile provenance retains both the entry Taskfile and actual included definition. A missing tool does not hide a command. `project_environment` means the runner uses a project wrapper such as mise; it does not claim the tool has been resolved or provisioned.
 
@@ -47,6 +63,8 @@ MCP `list_commands` accepts the same query text, `scope` and page bounds and ret
 
 `ctrl+v` toggles scrollable details at narrow sizes; arrows and page keys scroll them. `alt+m` toggles a favorite, `ctrl+y` copies the exact command, `ctrl+o` opens the defining source with `$EDITOR` (default `vi`), and `ctrl+t` opens the command in a terminal. `esc` closes the palette and restores the panel's filter, tab, selection, and focus. The palette does not mark covered output as reviewed.
 
+`f2` toggles the full discovery diagnostics, including missing checkouts, indexing progress and scan limits; arrows/page keys scroll. Command and registry IDs are available in detailed previews and structured output.
+
 Terminal handoff opens a new tmux window when runui is inside tmux. Outside tmux, configure `RUNUI_TERMINAL` with one executable path. That launcher receives two separate arguments: the absolute directory and command text. It should open a terminal in that directory and execute the command there. The launcher path is not parsed as a shell expression. External terminal work is owned by that terminal rather than runui's supervisor.
 
 Usage state lives in `catalog-v1.json` beside the run folders. Detailed recall retains at most 1,000 invocations for 180 days; aggregate counts have at most 2,000 keys and survive output pruning. Concurrent callers deduplicate launch events by run ID. Reconciliation can recover an actual launch missing from usage after a crash, using its original launch time; opening a palette never fabricates a new launch or clears a run notice. Known final outcomes do not regress when a stale running callback arrives. File contents are bounded to 16 MiB, writes are atomic and locked, corrupt JSON is preserved before repair, and unsupported versions are not overwritten. Retention configuration, removal controls, shell recall and input presets remain pending in the full plan.
@@ -54,3 +72,5 @@ Usage state lives in `catalog-v1.json` beside the run folders. Detailed recall r
 ## Verify this increment
 
 Run `task test` and `task lint` for the Rust contracts. After `task build`, run `python3 -B scripts/verify-palette.py` for real terminal checks (tmux, Make, Python and Pillow required). It uses private tmux sockets and temporary HOME/config/state, verifies source/favorite actions, panel filter restoration, wide/narrow rendering, supervised launch, Recent/current definition, and terminal handoff with a format-like directory name. Its PNG/ANSI captures are left in a printed temporary folder. Set `RUNUI_BIN` to check another build. It does not install the binary, access personal shell history, or copy to the system clipboard.
+
+`python3 -B scripts/verify-registry.py` also creates two disposable Git repositories and two actual worktrees. It checks duplicate names/IDs, a missing checkout, registered search/diagnostics, project selection/open, exact supervised cwd, and forgetting while keeping files/runs/output. All its configuration and processes are isolated; wide/narrow PNG/ANSI captures are retained in its printed temporary folder.

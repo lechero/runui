@@ -11,6 +11,9 @@ use runui_tea::tea::{self, Cmd, KeyPressMsg, Msg};
 use crate::styles::{S_ACCENT, S_BAD, S_DIM, S_HEADING, S_ROW_ACTIVE, S_TITLE};
 use crate::{App, Focus, PANEL_RUNS, RUNS_EVERYWHERE, StartedMsg};
 
+mod projects;
+pub(crate) use projects::{ProjectOpened, RegistryChanged};
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Mode {
     Commands,
@@ -29,15 +32,21 @@ pub(crate) struct Palette {
     queued: bool,
     launching: bool,
     detail: bool,
+    diagnostics: bool,
     detail_top: usize,
     note: String,
     error: String,
+    query_error: String,
+    picker: Option<projects::Picker>,
+    projects: Vec<runui_catalog::index::Indexed>,
+    project_filter: Option<String>,
 }
 
 pub(crate) struct Loaded {
     epoch: u64,
     snapshot: Snapshot,
     workspace_discovery: Option<(String, Arc<runui_project::Discovery>)>,
+    projects: Option<Result<Vec<runui_catalog::index::Indexed>, String>>,
 }
 pub(crate) struct Launched {
     epoch: u64,
@@ -69,9 +78,14 @@ impl Palette {
             queued: false,
             launching: false,
             detail: false,
+            diagnostics: false,
             detail_top: 0,
             note: String::new(),
             error: String::new(),
+            query_error: String::new(),
+            picker: None,
+            projects: Vec::new(),
+            project_filter: None,
         }
     }
 
@@ -83,12 +97,13 @@ impl Palette {
                     Mode::Commands => vec![Kind::Command, Kind::Favorite],
                     Mode::Recent => vec![Kind::Recent],
                 };
+                query.registry_id = self.project_filter.clone();
                 self.hits = self.snapshot.search(&query).into_iter().map(|hit| hit.entry.clone()).collect();
                 self.at = selected.and_then(|id| self.hits.iter().position(|entry| entry.id == id)).unwrap_or(0);
-                self.error.clear();
+                self.query_error.clear();
             }
             Err(error) => {
-                self.error = error;
+                self.query_error = error;
                 self.hits.clear();
                 self.at = 0;
             }
@@ -110,6 +125,9 @@ impl Palette {
     }
 
     pub(crate) fn draw(&mut self, width: i32, height: i32) -> String {
+        if self.picker.is_some() {
+            return self.draw_projects(width, height);
+        }
         let width = width.max(1);
         let height = height.max(1) as usize;
         self.input.set_width((width - 3).max(1));
@@ -124,6 +142,16 @@ impl Palette {
         let scope = match self.scope {
             Scope::Project => "Project",
             Scope::Workspace => "Workspace",
+            Scope::Registered => "Registered",
+        };
+        let scope = if let Some(id) = &self.project_filter {
+            self.projects
+                .iter()
+                .find(|item| &item.project.id == id)
+                .map(|item| format!("{scope} / {}", safe(&item.project.name)))
+                .unwrap_or_else(|| scope.into())
+        } else {
+            scope.into()
         };
         let mut lines = vec![
             S_HEADING.render(&format!("{mode} · {scope}{status}")),
@@ -160,20 +188,25 @@ impl Palette {
             lines.push(String::new());
         }
         lines.push(S_DIM.render(&"─".repeat(width as usize)));
-        let information = if !self.error.is_empty() {
+        let information = if !self.query_error.is_empty() {
+            S_BAD.render(&safe(&self.query_error))
+        } else if !self.error.is_empty() {
             S_BAD.render(&safe(&self.error))
-        } else if !self.note.is_empty() {
-            S_ACCENT.render(&safe(&self.note))
         } else {
-            S_DIM.render(&format!(
-                "{} matches · {} discovery diagnostics · ctrl+v details",
+            let status = format!(
+                "{} matches · {} diagnostics · f2 inspect · ctrl+v details",
                 self.hits.len(),
                 self.snapshot.diagnostics.len()
-            ))
+            );
+            if self.note.is_empty() {
+                S_DIM.render(&status)
+            } else {
+                S_ACCENT.render(&format!("{status} · {}", safe(&self.note)))
+            }
         };
         lines.push(information);
         lines.push(S_DIM.render(
-            "enter run/focus · tab mode · alt+s scope · alt+r another · alt+m favorite · ctrl+y copy · ctrl+o source · ctrl+t terminal · esc back",
+            "enter run/focus · tab mode · alt+s scope · alt+p projects · alt+r another · alt+m favorite · ctrl+y copy · ctrl+o source · ctrl+t terminal · esc back",
         ));
         lines.truncate(height);
         lines.into_iter().map(|line| ansi::truncate(&line, width, "…")).collect::<Vec<_>>().join("\n")
@@ -185,20 +218,49 @@ impl Palette {
             lines.resize(height, String::new());
             return lines;
         }
-        let top = self.at.saturating_sub(height.saturating_sub(1));
+        let row_height = if self.scope == Scope::Registered { 2 } else { 1 };
+        let top = self.at.saturating_sub((height / row_height).saturating_sub(1));
         let mut lines = Vec::new();
-        for (index, entry) in self.hits.iter().enumerate().skip(top).take(height) {
+        for (index, entry) in self.hits.iter().enumerate().skip(top).take(height / row_height) {
             let favorite = if entry.favorite { "★ " } else { "  " };
-            let row =
-                format!("{favorite}{}  · {}  · {}", safe(&entry.name), entry.source, safe(&entry.relative_directory));
+            let row = if self.scope == Scope::Registered {
+                format!(
+                    "{favorite}{} · {} · {}{}",
+                    safe(&entry.name),
+                    entry.source,
+                    safe(&entry.project),
+                    entry.branch.as_ref().map(|branch| format!(" [{}]", safe(branch))).unwrap_or_default()
+                )
+            } else {
+                format!("{favorite}{}  · {}  · {}", safe(&entry.name), entry.source, safe(&entry.relative_directory))
+            };
             let row = ansi::truncate(&row, width, "…");
             lines.push(if index == self.at { S_ROW_ACTIVE.render(&row) } else { row });
+            if self.scope == Scope::Registered {
+                lines.push(S_DIM.render(&projects::tail(
+                    &format!("{} / {}", safe(&entry.checkout), safe(&entry.relative_directory)),
+                    width,
+                )));
+            }
         }
         lines.resize(height, String::new());
         lines
     }
 
     fn preview(&self, width: i32) -> Vec<String> {
+        if self.diagnostics {
+            let mut lines = vec!["Discovery diagnostics".into()];
+            if self.snapshot.diagnostics.is_empty() {
+                lines.push("Discovery is complete; no diagnostics.".into());
+            }
+            for item in &self.snapshot.diagnostics {
+                lines.push(format!("{} · {}", safe(&item.kind), safe(&item.path)));
+                lines.push(safe(&item.message));
+                lines.push(String::new());
+            }
+            lines.push("F2 returns to the command · arrows/page keys scroll".into());
+            return wrapped(lines, width);
+        }
         let Some(entry) = self.hits.get(self.at) else {
             let mut lines = vec![
                 "Search all command sources together.".into(),
@@ -216,6 +278,17 @@ impl Palette {
             format!("cwd: {}", safe(&entry.directory)),
             format!("{} · {:?} · {:?}", entry.source, entry.origin, entry.availability),
         ];
+        if let Some(id) = &entry.registry_id {
+            lines.push(format!(
+                "project: {} · {}",
+                safe(&entry.project),
+                entry.branch.as_deref().map(safe).unwrap_or_else(|| "branch unknown".into())
+            ));
+            if self.detail {
+                lines.push(format!("checkout: {}", safe(&entry.checkout)));
+                lines.push(format!("registry: {id}"));
+            }
+        }
         if let Some(file) = &entry.entry_file {
             lines.push(format!(
                 "entry: {}{}",
@@ -258,7 +331,19 @@ impl Palette {
                 lines.push("Output is no longer retained; command recall remains available.".into());
             }
         }
-        lines.push(format!("id: {}", entry.id));
+        if self.detail {
+            lines.push(format!("id: {}", entry.id));
+            lines.extend(
+                [
+                    "Enter run/focus · Alt+R another",
+                    "Tab mode · Alt+S scope · Alt+P projects",
+                    "Alt+M favorite · Ctrl+Y copy",
+                    "Ctrl+O source · Ctrl+T terminal · F2 diagnostics",
+                    "Esc returns",
+                ]
+                .map(str::to_owned),
+            );
+        }
         wrapped(lines, width)
     }
 }
@@ -266,7 +351,7 @@ impl Palette {
 fn wrapped(lines: Vec<String>, width: i32) -> Vec<String> {
     lines
         .into_iter()
-        .flat_map(|line| ansi::hardwrap(&line, width, true).split('\n').map(str::to_string).collect::<Vec<_>>())
+        .flat_map(|line| ansi::wrap(&line, width, "/").split('\n').map(str::to_string).collect::<Vec<_>>())
         .collect()
 }
 pub(crate) fn safe(text: &str) -> String {
@@ -311,6 +396,39 @@ pub(crate) fn build(
     snapshot
 }
 
+fn build_registered(
+    indexed: &[runui_catalog::index::Indexed],
+    invocation: &str,
+    favorites: &runui_favorites::Store,
+    runs: &[runui_runs::Run],
+    runner: &dyn crate::Runner,
+) -> Snapshot {
+    let store = runner.usage_store();
+    if let Some(store) = &store {
+        let _ = store.reconcile(runs);
+    }
+    let usage = store.as_ref().map(|store| store.load()).transpose();
+    let default = runui_catalog::usage::Data::default();
+    let environment = runui_catalog::Environment::current().with_shell(&runner.execution_shell());
+    let mut snapshot = Snapshot::registered(
+        indexed,
+        &environment,
+        invocation,
+        favorites,
+        runs,
+        usage.as_ref().ok().and_then(|data| data.as_ref()).unwrap_or(&default),
+    );
+    if let Err(error) = usage {
+        snapshot.diagnostics.push(runui_catalog::Diagnostic {
+            path: store.map(|store| store.file().to_string_lossy().into_owned()).unwrap_or_default(),
+            message: error.to_string(),
+            source: Some("usage".into()),
+            kind: "history".into(),
+        });
+    }
+    snapshot
+}
+
 impl App {
     pub(crate) fn open_palette(&mut self) -> Cmd {
         self.palette_epoch += 1;
@@ -328,10 +446,13 @@ impl App {
         }
         palette.loading = true;
         let scope = palette.scope;
+        let needs_projects = scope == Scope::Registered || palette.picker.is_some();
+        let project_filter = palette.project_filter.clone();
         let previous = palette.workspace_discovery.clone();
         let epoch = self.palette_epoch;
         let (dir, repo) = (self.cfg.dir.clone(), self.cfg.repo.clone());
         let invocation = self.cfg.invocation_dir.clone();
+        let (registry, index) = (self.cfg.registry.clone(), self.cfg.index.clone());
         let (discovery, favorites, runs, runner, discover) = (
             self.discovery.clone(),
             self.cfg.favorites.clone(),
@@ -341,7 +462,34 @@ impl App {
         );
         tea::cmd_msg(move || {
             let selected = dir;
-            let dir = scope.directory(&selected, &repo);
+            let project_data = if needs_projects {
+                Some(registry.load().map(|data| index.request(&data.projects)).map_err(|error| format!("{error:#}")))
+            } else {
+                None
+            };
+            if scope == Scope::Registered {
+                let mut snapshot = match project_data.as_ref() {
+                    Some(Ok(indexed)) => {
+                        let selected: Vec<_> = indexed
+                            .iter()
+                            .filter(|item| project_filter.as_ref().is_none_or(|id| &item.project.id == id))
+                            .cloned()
+                            .collect();
+                        build_registered(&selected, &invocation, &favorites, &runs, runner.as_ref())
+                    }
+                    _ => Snapshot::default(),
+                };
+                if let Some(Err(error)) = &project_data {
+                    snapshot.diagnostics.push(runui_catalog::Diagnostic {
+                        path: registry.file().to_string_lossy().into_owned(),
+                        message: error.clone(),
+                        source: None,
+                        kind: "registry".into(),
+                    });
+                }
+                return Loaded { epoch, snapshot, workspace_discovery: None, projects: project_data };
+            }
+            let dir = scope.directory(&selected, &repo).expect("registered scope was handled");
             let discovery = if scope == Scope::Project {
                 discovery
             } else if let Some((_, previous)) =
@@ -357,6 +505,7 @@ impl App {
                 epoch,
                 snapshot: build(&dir, &repo, &invocation, &discovery, &favorites, &runs, runner.as_ref()),
                 workspace_discovery: if scope == Scope::Workspace { Some((dir, discovery)) } else { None },
+                projects: project_data,
             }
         })
     }
@@ -368,6 +517,25 @@ impl App {
         let palette = self.palette.as_mut()?;
         palette.loading = false;
         let queued = std::mem::take(&mut palette.queued);
+        if let Some(projects) = message.projects {
+            match projects {
+                Ok(projects) => {
+                    palette.projects = projects;
+                    if palette
+                        .project_filter
+                        .as_ref()
+                        .is_some_and(|id| !palette.projects.iter().any(|item| &item.project.id == id))
+                    {
+                        palette.project_filter = None;
+                        palette.note = "That checkout was forgotten; showing registered projects".into();
+                    }
+                }
+                Err(error) => {
+                    palette.projects.clear();
+                    palette.notify(&error, true);
+                }
+            }
+        }
         palette.workspace_discovery = message.workspace_discovery;
         palette.set_snapshot(message.snapshot);
         if queued { self.refresh_palette() } else { None }
@@ -375,16 +543,24 @@ impl App {
 
     pub(crate) fn palette_input(&mut self, message: &Msg) -> Cmd {
         let palette = self.palette.as_mut()?;
+        palette.error.clear();
+        if let Some(picker) = &mut palette.picker {
+            return picker.update(message);
+        }
         let command = palette.input.update(message);
         palette.query();
         command
     }
 
     pub(crate) fn palette_key(&mut self, key: &KeyPressMsg) -> Cmd {
+        if self.palette.as_ref().is_some_and(|palette| palette.picker.is_some()) {
+            return self.project_picker_key(key);
+        }
         let name = key.string();
         let palette = self.palette.as_mut()?;
         match name.as_str() {
             "esc" | "ctrl+p" => {
+                self.cfg.index.cancel_pending();
                 self.palette = None;
                 self.palette_epoch += 1;
                 None
@@ -397,13 +573,25 @@ impl App {
                 None
             }
             "alt+s" if !palette.launching => {
-                palette.scope = if palette.scope == Scope::Project { Scope::Workspace } else { Scope::Project };
+                palette.scope = match palette.scope {
+                    Scope::Project => Scope::Workspace,
+                    Scope::Workspace => Scope::Registered,
+                    Scope::Registered => Scope::Project,
+                };
+                palette.project_filter = None;
+                if palette.scope != Scope::Registered {
+                    self.cfg.index.cancel_pending();
+                }
                 palette.workspace_discovery = None;
                 palette.loading = false;
                 palette.queued = false;
                 palette.set_snapshot(Snapshot::default());
                 palette.note = "Scope changes search context; each command keeps its own working directory".into();
                 self.palette_epoch += 1;
+                self.refresh_palette()
+            }
+            "alt+p" if !palette.launching => {
+                palette.picker = Some(projects::Picker::new());
                 self.refresh_palette()
             }
             "up" if palette.detail => {
@@ -439,7 +627,14 @@ impl App {
                 None
             }
             "ctrl+v" => {
+                palette.diagnostics = false;
                 palette.detail = !palette.detail;
+                palette.detail_top = 0;
+                None
+            }
+            "f2" => {
+                palette.diagnostics = !palette.diagnostics;
+                palette.detail = palette.diagnostics;
                 palette.detail_top = 0;
                 None
             }
@@ -470,8 +665,13 @@ impl App {
             }
             "alt+m" => {
                 let entry = palette.selected()?;
+                let favorite_folder = if palette.scope == Scope::Registered {
+                    entry.project_directory.clone()
+                } else {
+                    self.cfg.dir.clone()
+                };
                 let relative =
-                    runui_core::golang::filepath::rel(&runui_catalog::canonical(&self.cfg.dir), &entry.directory)
+                    runui_core::golang::filepath::rel(&runui_catalog::canonical(&favorite_folder), &entry.directory)
                         .unwrap_or_default();
                 let favorite = runui_favorites::Favorite {
                     name: entry.name,
@@ -480,7 +680,7 @@ impl App {
                     dir: if relative == "." { String::new() } else { relative },
                     added: None,
                 };
-                match self.cfg.favorites.toggle(&self.cfg.dir, favorite) {
+                match self.cfg.favorites.toggle(&favorite_folder, favorite) {
                     Ok(starred) => {
                         palette.notify(if starred { "Saved as a favorite" } else { "Removed from favorites" }, false)
                     }
@@ -531,17 +731,53 @@ impl App {
                 palette.note = "Validating the current definition…".into();
                 let epoch = self.palette_epoch;
                 let scope = palette.scope;
+                let registered = entry.registry_id.clone();
                 let (dir, repo) = (self.cfg.dir.clone(), self.cfg.repo.clone());
                 let invocation = self.cfg.invocation_dir.clone();
+                let registry = self.cfg.registry.clone();
                 let (discover, favorites, runs, runner) =
                     (self.cfg.discover, self.cfg.favorites.clone(), self.runs.clone(), self.cfg.runs.clone());
                 tea::cmd_msg(move || {
                     let selected = dir;
-                    let dir = scope.directory(&selected, &repo);
+                    let project = if scope == Scope::Registered {
+                        match registered
+                            .as_deref()
+                            .ok_or_else(|| anyhow::anyhow!("selection has no registered project"))
+                            .and_then(|id| registry.project(id))
+                            .and_then(|project| {
+                                project.check_directory()?;
+                                Ok(project)
+                            }) {
+                            Ok(project) => Some(project),
+                            Err(error) => {
+                                return Launched {
+                                    epoch,
+                                    run: runui_runs::Run::default(),
+                                    error: Some(error.to_string()),
+                                    warning: None,
+                                    fresh: None,
+                                    discovery: None,
+                                    scope,
+                                };
+                            }
+                        }
+                    } else {
+                        None
+                    };
+                    let dir = project
+                        .as_ref()
+                        .map(|project| project.directory.clone())
+                        .or_else(|| scope.directory(&selected, &repo))
+                        .expect("selection context was resolved");
+                    let repo = project.as_ref().map(|project| project.directory.clone()).unwrap_or(repo);
                     let discovery = discover(&dir, &repo);
                     let favorites =
-                        if scope == Scope::Workspace { favorites.for_tree(&dir) } else { favorites.for_dir(&selected) };
-                    let fresh = build(&dir, &repo, &invocation, &discovery, &favorites, &runs, runner.as_ref());
+                        if scope != Scope::Project { favorites.for_tree(&dir) } else { favorites.for_dir(&selected) };
+                    let mut fresh = build(&dir, &repo, &invocation, &discovery, &favorites, &runs, runner.as_ref());
+                    if let Some(project) = project {
+                        fresh = fresh
+                            .with_registration(&project, runui_catalog::index::branch(&project.directory).as_deref());
+                    }
                     match fresh.prepare(&entry.id, Some(&entry.fingerprint), &Inputs::default()) {
                         Ok(prepared) => {
                             let (run, error) = runner.start_with_shell(
@@ -596,7 +832,9 @@ impl App {
         if let Some(discovery) = message.discovery {
             if message.scope == Scope::Project {
                 self.set_discovery(discovery);
-            } else if let Some(palette) = &mut self.palette {
+            } else if message.scope == Scope::Workspace
+                && let Some(palette) = &mut self.palette
+            {
                 let root = message
                     .fresh
                     .as_ref()

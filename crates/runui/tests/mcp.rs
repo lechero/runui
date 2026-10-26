@@ -102,6 +102,83 @@ fn workspace_scope_resolves_the_same_sibling_id_as_cli_and_launches_in_its_direc
     ));
 }
 
+#[test]
+fn registered_mcp_selection_matches_cli_and_revalidates_only_its_checkout() {
+    let home = tempfile::tempdir().unwrap();
+    let selected = home.path().join("one/app");
+    let other = home.path().join("two/app");
+    let favorites = home.path().join("config/runui/favorites.json");
+    let registry = runui_catalog::registry::Store::beside_favorites(favorites.to_str().unwrap());
+    let mut registrations = Vec::new();
+    for directory in [&selected, &other] {
+        fs::create_dir_all(directory.join(".git")).unwrap();
+        fs::write(directory.join("Makefile"), "test:\n\t@pwd > cwd.txt\n").unwrap();
+        registrations
+            .push(registry.add(directory.to_str().unwrap(), home.path().to_str().unwrap(), Some("App")).unwrap());
+    }
+    let mut child = Command::new(env!("CARGO_BIN_EXE_runui"))
+        .args(["mcp", "-C", selected.to_str().unwrap()])
+        .env("HOME", home.path())
+        .env("XDG_CONFIG_HOME", home.path().join("config"))
+        .env("XDG_STATE_HOME", home.path().join("state"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut client =
+        Client { input: child.stdin.take().unwrap(), output: BufReader::new(child.stdout.take().unwrap()), child };
+    client.request(
+        1,
+        "initialize",
+        json!({"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"registry-test","version":"1"}}),
+    );
+    client.notify("notifications/initialized");
+    let page = client.tool(2, "list_commands", json!({"scope":"registered","query":"source:make test"}));
+    let commands = page["structuredContent"]["commands"].as_array().unwrap();
+    assert_eq!(commands.len(), 2, "{page}");
+    let entry = commands.iter().find(|entry| entry["registry_id"] == registrations[1].id).unwrap();
+    let id = entry["id"].clone();
+    let fingerprint = entry["fingerprint"].clone();
+    let cli = Command::new(env!("CARGO_BIN_EXE_runui"))
+        .args(["commands", "-C", selected.to_str().unwrap(), "--scope", "registered", "--json", "source:make test"])
+        .env("HOME", home.path())
+        .env("XDG_CONFIG_HOME", home.path().join("config"))
+        .env("XDG_STATE_HOME", home.path().join("state"))
+        .output()
+        .unwrap();
+    let cli: Value = serde_json::from_slice(&cli.stdout).unwrap();
+    assert!(
+        cli["commands"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| entry["id"] == id && entry["fingerprint"] == fingerprint)
+    );
+    assert_eq!(client.tool(3, "start_run", json!({"scope":"registered","id":id}))["isError"], true);
+    fs::write(other.join("Makefile"), "test: ## Updated\n\t@pwd > cwd.txt\n").unwrap();
+    assert_eq!(
+        client.tool(
+            4,
+            "start_run",
+            json!({"scope":"registered","project":registrations[1].id,"id":id,"fingerprint":fingerprint})
+        )["isError"],
+        true
+    );
+    fs::rename(&selected, home.path().join("away")).unwrap();
+    let started = client.tool(5, "start_run", json!({"scope":"registered","project":registrations[1].id,"id":id}));
+    assert_eq!(started["isError"], false, "{started}");
+    assert_eq!(started["structuredContent"]["agent"], "registry-test");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !other.join("cwd.txt").exists() {
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert!(runui_catalog::same_directory(
+        fs::read_to_string(other.join("cwd.txt")).unwrap().trim(),
+        other.to_str().unwrap()
+    ));
+}
+
 impl Drop for Client {
     fn drop(&mut self) {
         let _ = self.child.kill();

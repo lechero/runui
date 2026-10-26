@@ -25,7 +25,7 @@ mod xml;
 mod yaml;
 
 pub use compose::read_compose;
-pub use discovery::{Diagnostic, Discovery, canonical_path, discover};
+pub use discovery::{Diagnostic, Discovery, canonical_path, discover, discover_cancellable};
 pub use makefile::read_makefile;
 pub use maven::read_pom;
 pub use npm::read_package_json;

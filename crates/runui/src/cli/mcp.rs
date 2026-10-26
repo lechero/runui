@@ -143,7 +143,7 @@ fn tools() -> Vec<Value> {
             "name": "list_commands",
             "description": "Search a bounded page of the shared command catalog and saved favorites. IDs, fingerprints, provenance and exact working directories can be used with start_run. Personal shell history is never included.",
             "inputSchema": {"type": "object", "properties": {
-                "query": {"type":"string"}, "limit":{"type":"integer","minimum":1,"maximum":500,"default":200}, "offset":{"type":"integer","minimum":0,"default":0}, "scope":{"type":"string","enum":["project","workspace"],"default":"project"}
+                "query": {"type":"string"}, "limit":{"type":"integer","minimum":1,"maximum":500,"default":200}, "offset":{"type":"integer","minimum":0,"default":0}, "scope":{"type":"string","enum":["project","workspace","registered"],"default":"project"}
             }, "additionalProperties": false},
             "annotations": {"readOnlyHint": true}
         }),
@@ -153,8 +153,9 @@ fn tools() -> Vec<Value> {
             "inputSchema": {"type": "object", "properties": {
                 "command": {"type": "string", "description": "The exact raw shell command; mutually exclusive with id."},
                 "id": {"type":"string","description":"Command catalog ID from list_commands; resolved again before launch."},
+                "project": {"type":"string","description":"registry_id returned by registered discovery; required with a registered id launch."},
                 "fingerprint": {"type":"string","description":"Expected definition fingerprint; stale selections fail before launch."},
-                "scope": {"type":"string","enum":["project","workspace"],"default":"project","description":"Catalog scope used to resolve an id; raw commands use project context."},
+                "scope": {"type":"string","enum":["project","workspace","registered"],"default":"project","description":"Catalog scope used to resolve an id; raw commands use project context."},
                 "inputs": {"type":"object","properties":{"args":{"type":"array","items":{"type":"string"}},"variables":{"type":"object","additionalProperties":{"type":"string"}}},"additionalProperties":false},
                 "directory": {"type": "string", "description": "Working directory, absolute or relative to the selected project; defaults to the project directory."},
                 "name": {"type": "string", "description": "Optional label shown in runui."}
@@ -195,6 +196,8 @@ fn tools() -> Vec<Value> {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct StartArgs {
+    #[serde(default)]
+    project: Option<String>,
     #[serde(default)]
     scope: runui_catalog::Scope,
     #[serde(default)]
@@ -321,9 +324,13 @@ fn start_run(w: &Workspace, agent: &str, args: StartArgs) -> Result<Value> {
         if args.command.is_some() || args.directory.is_some() {
             return Err(anyhow!("id cannot be combined with command or directory"));
         }
-        Some(w.catalog_scoped(args.scope)?.prepare(id, args.fingerprint.as_deref(), &args.inputs)?)
+        Some(w.catalog_selection(args.scope, args.project.as_deref())?.prepare(
+            id,
+            args.fingerprint.as_deref(),
+            &args.inputs,
+        )?)
     } else {
-        if args.scope != runui_catalog::Scope::Project {
+        if args.scope != runui_catalog::Scope::Project || args.project.is_some() {
             return Err(anyhow!("scope applies to catalog id launches; raw commands use project context"));
         }
         if args.fingerprint.is_some() || args.inputs != runui_catalog::Inputs::default() {

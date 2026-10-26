@@ -3,19 +3,16 @@
 //! replacement of the data file, so concurrent frontends do not lose launches.
 
 use std::collections::{BTreeMap, HashSet};
-use std::fs::{self, OpenOptions};
-use std::io::{Read, Write};
-use std::os::unix::fs::OpenOptionsExt;
+#[cfg(test)]
+use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Result, anyhow};
 use chrono::{DateTime, TimeDelta, Utc};
-use fs2::FileExt;
 use runui_runs::Run;
 use serde::{Deserialize, Serialize};
-use tempfile::NamedTempFile;
 
+use crate::state::{JsonFile, State};
 use crate::{Entry, Prepared, Recipe, canonical, digest, run_state};
 
 const VERSION: u32 = 1;
@@ -214,27 +211,22 @@ fn invocation_key(directory: &str, command: &str, shell: &[String]) -> String {
 
 #[derive(Clone, Debug)]
 pub struct Store {
-    file: PathBuf,
+    file: JsonFile,
 }
 
 impl Store {
     pub fn new(file: impl Into<PathBuf>) -> Self {
-        Self { file: file.into() }
+        Self { file: JsonFile::new(file, MAX_BYTES, "usage history") }
     }
     pub fn for_runs(root: &str) -> Self {
         Self::new(Path::new(root).join("catalog-v1.json"))
     }
     pub fn file(&self) -> &Path {
-        &self.file
+        self.file.file()
     }
 
     pub fn load(&self) -> Result<Data> {
-        let bytes = match read_state(&self.file) {
-            Ok(bytes) => bytes,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Data::default()),
-            Err(error) => return Err(error).with_context(|| format!("reading {}", self.file.display())),
-        };
-        decode(&bytes).with_context(|| format!("reading {}", self.file.display()))
+        self.file.load()
     }
 
     pub fn record(&self, run: &Run, prepared: Option<&Prepared>) -> Result<()> {
@@ -279,78 +271,17 @@ impl Store {
     }
 
     fn change(&self, apply: impl FnOnce(&mut Data) -> Result<()>) -> Result<()> {
-        let parent = self.file.parent().filter(|path| !path.as_os_str().is_empty()).unwrap_or_else(|| Path::new("."));
-        fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
-        let lock_path = self.file.with_extension("lock");
-        let lock =
-            OpenOptions::new().read(true).write(true).create(true).truncate(false).mode(0o600).open(&lock_path)?;
-        let deadline = Instant::now() + Duration::from_secs(2);
-        loop {
-            match FileExt::try_lock_exclusive(&lock) {
-                Ok(()) => break,
-                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock && Instant::now() < deadline => {
-                    std::thread::sleep(Duration::from_millis(5))
-                }
-                Err(error) => return Err(error).context("locking usage history"),
-            }
-        }
-        let mut data = match read_state(&self.file) {
-            Ok(bytes) => {
-                // A future schema is never overwritten by an older binary.
-                match decode(&bytes) {
-                    Ok(data) => data,
-                    Err(error) => {
-                        let value = serde_json::from_slice::<serde_json::Value>(&bytes).ok();
-                        if value
-                            .as_ref()
-                            .and_then(|value| value["version"].as_u64())
-                            .is_some_and(|version| version != u64::from(VERSION))
-                        {
-                            return Err(error);
-                        }
-                        let mut backup = tempfile::Builder::new()
-                            .prefix("catalog-v1.corrupt-")
-                            .suffix(".json")
-                            .tempfile_in(parent)?;
-                        backup.write_all(&bytes)?;
-                        backup.as_file().sync_all()?;
-                        let (_, path) = backup.keep().context("preserving damaged usage history")?;
-                        Data { recovered_from: Some(path), ..Data::default() }
-                    }
-                }
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Data::default(),
-            Err(error) => return Err(error.into()),
-        };
-        apply(&mut data)?;
-        let mut temporary = NamedTempFile::new_in(parent)?;
-        serde_json::to_writer_pretty(&mut temporary, &data)?;
-        temporary.write_all(b"\n")?;
-        if temporary.as_file().metadata()?.len() > MAX_BYTES {
-            return Err(anyhow!("usage history exceeds the 16 MiB limit"));
-        }
-        temporary.as_file().sync_all()?;
-        temporary.persist(&self.file).with_context(|| format!("writing {}", self.file.display()))?;
-        Ok(())
+        self.file.change(apply)
     }
 }
 
-fn read_state(path: &Path) -> std::io::Result<Vec<u8>> {
-    let file = fs::File::open(path)?;
-    let mut bytes = Vec::new();
-    file.take(MAX_BYTES + 1).read_to_end(&mut bytes)?;
-    if bytes.len() as u64 > MAX_BYTES {
-        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "usage history exceeds the 16 MiB limit"));
+impl State for Data {
+    fn version(&self) -> u32 {
+        self.version
     }
-    Ok(bytes)
-}
-
-fn decode(bytes: &[u8]) -> Result<Data> {
-    let data: Data = serde_json::from_slice(bytes).context("invalid usage history")?;
-    if data.version != VERSION {
-        return Err(anyhow!("unsupported usage history version {}", data.version));
+    fn recovered(&mut self, path: PathBuf) {
+        self.recovered_from = Some(path);
     }
-    Ok(data)
 }
 
 #[cfg(test)]

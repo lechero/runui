@@ -13,7 +13,10 @@ use runui_runs::{Run, State};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+pub mod index;
+pub mod registry;
 mod search;
+mod state;
 pub mod usage;
 
 pub use search::{Hit, Query};
@@ -24,13 +27,15 @@ pub enum Scope {
     #[default]
     Project,
     Workspace,
+    Registered,
 }
 
 impl Scope {
-    pub fn directory(self, project: &str, checkout: &str) -> String {
+    pub fn directory(self, project: &str, checkout: &str) -> Option<String> {
         match self {
-            Self::Project => project.into(),
-            Self::Workspace => runui_project::workspace_root(project, checkout),
+            Self::Project => Some(project.into()),
+            Self::Workspace => Some(runui_project::workspace_root(project, checkout)),
+            Self::Registered => None,
         }
     }
 }
@@ -145,6 +150,10 @@ pub struct Inputs {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Entry {
+    #[serde(default)]
+    pub registry_id: Option<String>,
+    #[serde(default)]
+    pub branch: Option<String>,
     pub id: String,
     pub fingerprint: String,
     pub kind: Kind,
@@ -194,6 +203,96 @@ pub struct Snapshot {
 }
 
 impl Snapshot {
+    pub fn with_registration(mut self, project: &registry::Project, branch: Option<&str>) -> Self {
+        for entry in &mut self.entries {
+            entry.registry_id = Some(project.id.clone());
+            entry.project = project.name.clone();
+            entry.branch = branch.map(str::to_owned);
+        }
+        self
+    }
+
+    pub fn registered(
+        indexed: &[index::Indexed],
+        environment: &Environment,
+        invocation: &str,
+        favorites: &runui_favorites::Store,
+        runs: &[Run],
+        usage: &usage::Data,
+    ) -> Self {
+        let mut result = Self::default();
+        let mut execution_rows = BTreeMap::<String, usize>::new();
+        for indexed in indexed {
+            let project = &indexed.project;
+            if indexed.pending {
+                result.diagnostics.push(Diagnostic {
+                    path: project.directory.clone(),
+                    message: "checkout indexing is in progress; ready results remain available".into(),
+                    source: None,
+                    kind: "indexing".into(),
+                });
+            }
+            if let Some(error) = &indexed.error {
+                result.diagnostics.push(Diagnostic {
+                    path: project.directory.clone(),
+                    message: error.clone(),
+                    source: None,
+                    kind: "project".into(),
+                });
+            }
+            let Some(discovery) = &indexed.discovery else {
+                continue;
+            };
+            let context = Context {
+                project: project.directory.clone(),
+                checkout: project.directory.clone(),
+                invocation_dir: canonical(invocation),
+                environment: environment.clone(),
+            };
+            let mut snapshot = Self::build(&context, discovery, &favorites.for_tree(&project.directory), runs, usage)
+                .with_registration(project, indexed.branch.as_deref());
+            result.diagnostics.append(&mut snapshot.diagnostics);
+            if snapshot.entries.len() > 10_000 {
+                snapshot.entries.sort_by_key(|entry| match entry.kind {
+                    Kind::Recent | Kind::Run => 0,
+                    _ if entry.favorite => 1,
+                    _ if entry.launches > 0 => 2,
+                    _ => 3,
+                });
+                snapshot.entries.truncate(10_000);
+                result.diagnostics.push(Diagnostic {
+                    path: project.directory.clone(),
+                    message:
+                        "registered checkout reached the 10,000-entry limit; use Project scope for a narrower search"
+                            .into(),
+                    source: None,
+                    kind: "limit".into(),
+                });
+            }
+            for entry in snapshot.entries {
+                if matches!(entry.kind, Kind::Run | Kind::Recent) {
+                    if let Some(position) = execution_rows.get(&entry.id) {
+                        if result.entries[*position].checkout.len() < entry.checkout.len() {
+                            result.entries[*position] = entry;
+                        }
+                        continue;
+                    }
+                    execution_rows.insert(entry.id.clone(), result.entries.len());
+                }
+                if result.entries.len() >= 50_000 {
+                    result.diagnostics.push(Diagnostic {
+                        path: project.directory.clone(),
+                        message: "registered search reached the 50,000-entry limit".into(),
+                        source: None,
+                        kind: "limit".into(),
+                    });
+                    return result;
+                }
+                result.entries.push(entry);
+            }
+        }
+        result
+    }
     pub fn build(
         context: &Context,
         discovery: &Discovery,
@@ -244,6 +343,8 @@ impl Snapshot {
                     .first()
                     .map_or(Availability::Shell, |program| context.environment.availability(program, &directory));
                 let mut entry = Entry {
+                    registry_id: None,
+                    branch: None,
                     id: id.clone(),
                     definition_id: Some(id),
                     fingerprint,
@@ -312,6 +413,8 @@ impl Snapshot {
             }
             let recipe = Recipe::Shell { command: favorite.command.clone(), shell: context.environment.shell.clone() };
             let mut entry = Entry {
+                registry_id: None,
+                branch: None,
                 id: format!("cmd-v1-{}", digest(&[&context.checkout, "favorite", &directory, &favorite.command])),
                 fingerprint: fingerprint(&directory, &recipe, ""),
                 kind: Kind::Favorite,
@@ -363,6 +466,8 @@ impl Snapshot {
             }
             let recipe = Recipe::Shell { command: run.command.clone(), shell: run.shell.clone() };
             snapshot.entries.push(Entry {
+                registry_id: None,
+                branch: None,
                 id: format!("run:{}", run.id),
                 fingerprint: fingerprint(&directory, &recipe, ""),
                 kind: Kind::Run,
@@ -413,6 +518,8 @@ impl Snapshot {
                 continue;
             }
             let mut entry = Entry {
+                registry_id: None,
+                branch: None,
                 id: format!("recent:{}", invocation.run_id),
                 fingerprint: fingerprint(&invocation.directory, &invocation.recipe, ""),
                 kind: Kind::Recent,
