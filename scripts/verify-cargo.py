@@ -115,6 +115,11 @@ engine.workspace=true
     assert not (tool/'native-build.marker').exists()
     assert all(entry['origin']=='generated' for entry in commands)
     assert all(entry['directory']==str(invocation) for entry in commands), 'Cargo lost invocation cwd'
+    passive_binary=next(entry for entry in commands if entry['name']=='run --bin tool (tool)')
+    missing_lock=cli('inspect','--native','--json',passive_binary['id'],cwd=invocation)['native_inspection']
+    assert not missing_lock['ready'] and not missing_lock['checked']
+    assert 'existing Cargo.lock' in missing_lock['skipped']
+    assert not (project/'Cargo.lock').exists()
 
     # Only the disposable fixture receives a lockfile. --no-deps metadata
     # builds nothing and invokes no build scripts or procedural macros.
@@ -164,6 +169,63 @@ engine.workspace=true
     binary=next(entry for entry in local if entry['name']=='run --bin tool (tool)')
     assert binary['cargo']['target']['default_run']
     assert binary['recipe']['argv'][-2:]==['--features','gated']
+    checked=cli('inspect','--native','--json',binary['id'],cwd=invocation)['native_inspection']
+    assert checked['ready'],checked
+    assert checked['cargo']['definition_matches'] and checked['cargo']['package']=='tool'
+    assert checked['cargo']['targets'] and checked['cargo']['available_features']
+    assert not (tool/'native-build.marker').exists()
+    assert not list((home/'state/runui/runs').glob('*/run.json'))
+    assert not (home/'state/runui/runs/catalog-v1.json').exists()
+    # Metadata checks must not execute compiler overrides or wrappers. Cargo
+    # owns those during a deliberate build; inspection uses installed rustc.
+    trap=home/'compiler trap'
+    trap.write_text('#!/bin/sh\ntouch '+str(home/'COMPILER_RAN')+'\nexit 7\n')
+    trap.chmod(0o700)
+    config=invocation/'.cargo/config.toml'
+    write(invocation,'.cargo/config.toml',
+          '[build]\nrustc='+json.dumps(str(trap))+'\nrustc-wrapper='+json.dumps(str(trap))+
+          '\nrustc-workspace-wrapper='+json.dumps(str(trap))+'\n[env]\nRUSTC={value='+json.dumps(str(trap))+',force=true}\nRUSTUP_AUTO_INSTALL={value="1",force=true}\n')
+    guarded=cli('inspect','--native','--json',binary['id'],cwd=invocation)['native_inspection']
+    assert guarded['ready'],guarded
+    assert not (home/'COMPILER_RAN').exists()
+    config.unlink()
+    config.parent.rmdir()
+    # Script shims and unavailable rustup toolchains fall back before Cargo
+    # can build, install, or create an unread run. Each uses its own PATH/home.
+    scripts=home/'script-shims'
+    scripts.mkdir()
+    (scripts/'cargo').write_text('#!/bin/sh\ntouch '+str(home/'SHIM_RAN')+'\n')
+    (scripts/'cargo').chmod(0o700)
+    variant=dict(env,PATH=f'{scripts}:{env["PATH"]}')
+    skipped=json.loads(subprocess.run([str(BIN),'inspect','--native','--json',binary['id']],cwd=invocation,env=variant,text=True,capture_output=True,timeout=30,check=True).stdout)['native_inspection']
+    assert not skipped['ready'] and 'script shim' in skipped['skipped']
+    assert not (home/'SHIM_RAN').exists()
+    if RUSTUP:
+        proxies=home/'rustup-proxies'
+        proxies.mkdir()
+        rustup_binary=Path(RUSTUP).resolve()
+        with rustup_binary.open('rb') as stream:script_proxy=stream.read(2)==b'#!'
+        for name in ['cargo','rustc','rustup']:(proxies/name).symlink_to(rustup_binary)
+        if CARGO.parent.parent.parent.name=='toolchains':
+            variant=dict(env,PATH=f'{proxies}:/usr/bin:/bin',RUSTUP_HOME=str(CARGO.parent.parent.parent.parent),RUSTUP_TOOLCHAIN=CARGO.parent.parent.name)
+            located=json.loads(subprocess.run([str(BIN),'inspect','--native','--json',binary['id']],cwd=invocation,env=variant,text=True,capture_output=True,timeout=30,check=True).stdout)['native_inspection']
+            if script_proxy:
+                # Some managed macOS runners expose rustup via a script.
+                # Product inspection must reject it without executing it.
+                assert not located['ready'] and not located['checked'] and 'script shim' in located['skipped'],located
+            else:
+                assert located['ready'],located
+                assert [probe['tool'] for probe in located['checked'][:2]]==['rustup which cargo','rustup which rustc']
+        variant=dict(env,PATH=f'{proxies}:/usr/bin:/bin',RUSTUP_HOME=str(home/'missing-rustup'),RUSTUP_TOOLCHAIN='runui-never-install')
+        skipped=json.loads(subprocess.run([str(BIN),'inspect','--native','--json',binary['id']],cwd=invocation,env=variant,text=True,capture_output=True,timeout=30,check=True).stdout)['native_inspection']
+        assert not skipped['ready'],skipped
+        if script_proxy:
+            assert not skipped['checked'] and 'script shim' in skipped['skipped'],skipped
+        else:
+            assert 'not installed' in skipped['skipped'],skipped
+            assert skipped['checked'][0]['tool']=='rustup which cargo'
+        assert not (home/'missing-rustup/toolchains').exists()
+    binary=next(entry for entry in cli('commands','--json','source:cargo',cwd=invocation)['commands'] if entry['name']=='run --bin tool (tool)')
     arguments=['--literal-flag','space here',"'\"$();`touch NEVER`",'', 'line\nbreak','☕']
     started=cli('run','--json','--fingerprint',binary['fingerprint'],binary['id'],'--',*arguments,cwd=invocation)
 
@@ -237,4 +299,4 @@ engine.workspace=true
     assert {entry['cargo']['package'] for entry in nested_entries if entry['cargo']['package']}=={'nested'}
     native=json.loads(run(CARGO,'metadata','--no-deps','--offline','--format-version','1',cwd=nested/'rust/workspace').stdout)
     assert {entry['entry_file'] for entry in nested_entries if entry['cargo']['package']}=={package['manifest_path'] for package in native['packages']}
-    print('Native Cargo checks passed: passive/no-build discovery, membership/defaults, target kinds/features, invocation cwd, literal supervised args, shared CLI/MCP scope IDs and attribution, and edition inference.')
+    print('Native Cargo checks passed: passive/no-build discovery, explicit bounded metadata and static fallback, installed rustup tools, no compiler wrappers or script shims, membership/defaults, target kinds/features, invocation cwd, literal supervised args, shared CLI/MCP scope IDs and attribution, and edition inference.')

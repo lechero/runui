@@ -115,6 +115,10 @@ with tempfile.TemporaryDirectory(prefix='runui-palette-') as temporary:
                 assert not metadata()
                 assert not (app/'Cargo.lock').exists() and not (app/'target').exists()
                 shot('runui-cargo-wide',120,36)
+                key('M-i')
+                wait(lambda: any(message in plain() for message in ('existing Cargo.lock','wrapper remains unverified')), 'Cargo native fallback did not complete')
+                assert not metadata(), 'Cargo inspection created a run'
+                assert not (app/'Cargo.lock').exists()
                 tmux('resize-window','-t','verify:0','-x','60','-y','16')
                 key('C-v')
                 shows('cwd:')
