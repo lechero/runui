@@ -490,6 +490,7 @@ fn compose() {
             "Compose compose.yaml [] docker compose up",
             "Compose docker-compose.dev.yml [docker-compose.dev.yml] docker compose -f docker-compose.dev.yml up",
             "Compose docker-compose.yml [docker-compose.yml] docker compose -f docker-compose.yml up",
+            "Composer composer.json [] ",
         ]
     );
     check(

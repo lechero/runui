@@ -13,11 +13,13 @@ The pages are static HTML and CSS with no JavaScript, external fonts, or build s
 
 - [Four panels](index.html#overview): Favorites, Project, Runs, and Log.
 - [Everyday use](index.html#workflow): discover, favorite, run, leave, return, and stop.
-- [Command catalog](command-catalog.md): Project/Workspace/Registered search, recent recall, project picker, diagnostics, CLI IDs and preparation.
+- [Command catalog](command-catalog.md): Project/Workspace/Registered search, recent recall, project picker, diagnostics, Composer, CLI IDs and preparation.
 - [Log](index.html#log): review successful and failed results, clear notices, and revisit history.
 - [Tmux](index.html#status-bars): global counts, hidden zeros, and the shared review state.
 - [MCP](index.html#mcp): configuration, all six tools, agent identity, persistence, and tool-call examples.
 - [Keyboard](index.html#keyboard), [CLI](index.html#cli), and [stored files](index.html#files).
+
+Native Composer verification uses `scripts/verify-composer.py` with existing PHP and a selected PHAR. CI checks pinned official Composer 2.2.30 and 2.10.3 against disposable scripts, callbacks, helpers, alternate context and supervised CLI/MCP runs. See [the catalog reference](command-catalog.md#verify-this-increment). It installs no project dependencies and never uses personal Composer configuration.
 
 ## Regenerate captures
 
@@ -62,4 +64,4 @@ This regenerates browser/touch/app icons and the repository social card. The [br
 
 ## Planned discovery improvements
 
-The [research](command-discovery-research.md) and [integration plan](command-discovery-plan.md) are roadmap documents. They describe catalog search, workspace membership, registered projects, and additional sources that are not yet shipped. The user guide documents current behavior.
+The [research](command-discovery-research.md) and [integration plan](command-discovery-plan.md) are roadmap documents. They distinguish implemented catalog/workspace/registry/Composer work from the remaining Cargo, shell recall, inputs and workflow contracts. The user guide documents current behavior.

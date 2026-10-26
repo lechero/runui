@@ -1,7 +1,10 @@
 //! The command palette owns its query and selection; opening it never moves
 //! panel cursors or reads their output. Catalog work happens in Tea commands.
 
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 
 use runui_catalog::{Context, Entry, Inputs, Kind, Query, Scope, Snapshot};
 use runui_tea::ansi;
@@ -38,6 +41,9 @@ pub(crate) struct Palette {
     error: String,
     query_error: String,
     picker: Option<projects::Picker>,
+    native: Option<(String, String, runui_catalog::inspection::Report)>,
+    native_cancel: Arc<AtomicBool>,
+    native_busy: bool,
     projects: Vec<runui_catalog::index::Indexed>,
     project_filter: Option<String>,
 }
@@ -48,6 +54,13 @@ pub(crate) struct Loaded {
     workspace_discovery: Option<(String, Arc<runui_project::Discovery>)>,
     projects: Option<Result<Vec<runui_catalog::index::Indexed>, String>>,
 }
+pub(crate) struct Inspected {
+    epoch: u64,
+    id: String,
+    fingerprint: String,
+    report: runui_catalog::inspection::Report,
+}
+
 pub(crate) struct Launched {
     epoch: u64,
     run: runui_runs::Run,
@@ -56,6 +69,12 @@ pub(crate) struct Launched {
     fresh: Option<Snapshot>,
     discovery: Option<runui_project::Discovery>,
     scope: Scope,
+}
+
+impl Drop for Palette {
+    fn drop(&mut self) {
+        self.native_cancel.store(true, Ordering::Relaxed);
+    }
 }
 
 impl Palette {
@@ -84,6 +103,9 @@ impl Palette {
             error: String::new(),
             query_error: String::new(),
             picker: None,
+            native: None,
+            native_cancel: Arc::new(AtomicBool::new(false)),
+            native_busy: false,
             projects: Vec::new(),
             project_filter: None,
         }
@@ -94,7 +116,10 @@ impl Palette {
         match Query::parse(&self.input.value()) {
             Ok(mut query) => {
                 query.kinds = match self.mode {
-                    Mode::Commands => vec![Kind::Command, Kind::Favorite],
+                    Mode::Commands => {
+                        query.commands();
+                        query.kinds.clone()
+                    }
                     Mode::Recent => vec![Kind::Recent],
                 };
                 query.registry_id = self.project_filter.clone();
@@ -194,7 +219,7 @@ impl Palette {
             S_BAD.render(&safe(&self.error))
         } else {
             let status = format!(
-                "{} matches · {} diagnostics · f2 inspect · ctrl+v details",
+                "{} matches · {} diagnostics · f2 inspect · ctrl+v details · alt+i native",
                 self.hits.len(),
                 self.snapshot.diagnostics.len()
             );
@@ -276,8 +301,51 @@ impl Palette {
             S_TITLE.render(&safe(&entry.name)),
             format!("$ {}", safe(&entry.command)),
             format!("cwd: {}", safe(&entry.directory)),
-            format!("{} · {:?} · {:?}", entry.source, entry.origin, entry.availability),
+            format!("{} · {:?} · {}", entry.source, entry.origin, entry.availability.label()),
         ];
+        if !entry.aliases.is_empty() {
+            lines.push(format!(
+                "aliases: {}",
+                entry.aliases.iter().map(|alias| safe(alias)).collect::<Vec<_>>().join(", ")
+            ));
+        }
+        for tool in &entry.requirements {
+            lines.push(format!(
+                "{}: {}{}",
+                safe(&tool.program),
+                tool.availability.label(),
+                tool.resolved_path.as_ref().map(|path| format!(" · {}", safe(path))).unwrap_or_default()
+            ));
+        }
+        if entry.kind == Kind::Hook {
+            lines.push("Lifecycle hook · explicit launch through Composer".into());
+        }
+        if self.native_busy {
+            lines.push("Native check running…".into());
+        }
+        if let Some((id, fingerprint, report)) = &self.native
+            && id == &entry.id
+            && fingerprint == &entry.fingerprint
+        {
+            if let Some(reason) = &report.skipped {
+                lines.push(safe(reason));
+            }
+            for probe in &report.checked {
+                lines.push(format!(
+                    "Native {}: {}",
+                    safe(&probe.tool),
+                    if probe.supported { "version verified" } else { "unavailable or unsupported" }
+                ));
+                if let Some(error) = &probe.error {
+                    lines.push(safe(error));
+                }
+                if let Some(output) = &probe.output {
+                    lines.push(format!("{:?} · code {:?} · {} ms", output.end, output.code, output.elapsed_ms));
+                    lines.push(safe(&output.stdout));
+                    lines.push(safe(&output.stderr));
+                }
+            }
+        }
         if let Some(id) = &entry.registry_id {
             lines.push(format!(
                 "project: {} · {}",
@@ -573,6 +641,9 @@ impl App {
                 None
             }
             "alt+s" if !palette.launching => {
+                palette.native_cancel.store(true, Ordering::Relaxed);
+                palette.native_busy = false;
+                palette.native = None;
                 palette.scope = match palette.scope {
                     Scope::Project => Scope::Workspace,
                     Scope::Workspace => Scope::Registered,
@@ -626,6 +697,23 @@ impl App {
                 palette.at = (palette.at + 10).min(palette.hits.len().saturating_sub(1));
                 None
             }
+            "alt+i" if !palette.native_busy => {
+                let entry = palette.selected()?;
+                let epoch = self.palette_epoch;
+                let cancel = Arc::new(AtomicBool::new(false));
+                palette.native_cancel.store(true, Ordering::Relaxed);
+                palette.native_cancel = cancel.clone();
+                palette.native_busy = true;
+                palette.native = None;
+                tea::cmd(move || {
+                    Some(tea::msg(Inspected {
+                        epoch,
+                        id: entry.id.clone(),
+                        fingerprint: entry.fingerprint.clone(),
+                        report: runui_catalog::inspection::check(&entry, &cancel),
+                    }))
+                })
+            }
             "ctrl+v" => {
                 palette.diagnostics = false;
                 palette.detail = !palette.detail;
@@ -676,7 +764,7 @@ impl App {
                 let favorite = runui_favorites::Favorite {
                     name: entry.name,
                     command: entry.command,
-                    source: if entry.kind == Kind::Command { entry.source } else { String::new() },
+                    source: if matches!(entry.kind, Kind::Command | Kind::Hook) { entry.source } else { String::new() },
                     dir: if relative == "." { String::new() } else { relative },
                     added: None,
                 };
@@ -817,6 +905,16 @@ impl App {
             }
             _ => self.palette_input(&tea::msg(key.clone())),
         }
+    }
+
+    pub(crate) fn palette_inspected(&mut self, message: Inspected) -> Cmd {
+        if message.epoch == self.palette_epoch
+            && let Some(palette) = &mut self.palette
+        {
+            palette.native_busy = false;
+            palette.native = Some((message.id, message.fingerprint, message.report));
+        }
+        None
     }
 
     pub(crate) fn palette_launched(&mut self, message: Launched) -> Cmd {

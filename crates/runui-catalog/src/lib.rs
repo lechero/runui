@@ -1,7 +1,7 @@
 //! Shared command identity, search and preparation. Discovery is passive;
 //! preparing a selection never starts a process or reads private shell history.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 pub mod index;
+pub mod inspection;
 pub mod registry;
 mod search;
 mod state;
@@ -80,18 +81,25 @@ impl Environment {
         self
     }
 
-    fn availability(&self, program: &str, dir: &str) -> Availability {
+    pub fn availability(&self, program: &str, dir: &str) -> Availability {
         if self.project_wrapper {
             return Availability::ProjectEnvironment;
         }
+        if self.resolve(program, dir).is_some() { Availability::OnPath } else { Availability::Missing }
+    }
+
+    fn resolve(&self, program: &str, dir: &str) -> Option<String> {
+        if self.project_wrapper {
+            return None;
+        }
         let executable =
             |path: &Path| fs::metadata(path).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0);
-        let found = if program.contains('/') {
-            executable(&Path::new(dir).join(program))
+        let candidates = if program.contains('/') {
+            vec![Path::new(dir).join(program)]
         } else {
-            self.path.iter().any(|path| executable(&path.join(program)))
+            self.path.iter().map(|path| Path::new(dir).join(path).join(program)).collect()
         };
-        if found { Availability::OnPath } else { Availability::Missing }
+        candidates.into_iter().find(|path| executable(path)).map(|path| canonical(&path.to_string_lossy()))
     }
 }
 
@@ -104,10 +112,22 @@ pub enum Availability {
     Shell,
 }
 
+impl Availability {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::OnPath => "on PATH",
+            Self::Missing => "missing",
+            Self::ProjectEnvironment => "project environment · unchecked",
+            Self::Shell => "shell command",
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Kind {
     Command,
+    Hook,
     Favorite,
     Run,
     Recent,
@@ -146,6 +166,16 @@ pub struct Inputs {
     pub args: Vec<String>,
     #[serde(default)]
     pub variables: BTreeMap<String, String>,
+    /// None preserves Composer's project/default timeout; 0 explicitly disables it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout_seconds: Option<u32>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Requirement {
+    pub program: String,
+    pub availability: Availability,
+    pub resolved_path: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -175,6 +205,10 @@ pub struct Entry {
     pub command: String,
     pub recipe: Recipe,
     pub availability: Availability,
+    #[serde(default)]
+    pub requirements: Vec<Requirement>,
+    #[serde(default)]
+    pub aliases: Vec<String>,
     pub favorite: bool,
     pub favorite_names: Vec<String>,
     pub launches: u64,
@@ -302,6 +336,10 @@ impl Snapshot {
     ) -> Self {
         let project_name = Path::new(&context.project).file_name().unwrap_or_default().to_string_lossy().into_owned();
         let mut snapshot = Self::default();
+        // A source can declare thousands of scripts using the same tools.
+        // Resolve each tool/cwd once in this snapshot; the next build is fresh.
+        let mut tools = HashMap::<(String, String), Requirement>::new();
+        let mut tool_stamps = HashMap::<String, String>::new();
         for file in &discovery.files {
             if let Some(error) = &file.err {
                 snapshot.diagnostics.push(Diagnostic {
@@ -337,18 +375,73 @@ impl Snapshot {
                     variables,
                     shell: context.environment.shell.clone(),
                 };
-                let fingerprint = fingerprint(&directory, &recipe, &file.fingerprint);
-                let availability = command
-                    .argv
-                    .first()
-                    .map_or(Availability::Shell, |program| context.environment.availability(program, &directory));
+                let programs: Vec<_> = if command.requirements.is_empty() {
+                    command.argv.first().cloned().into_iter().collect()
+                } else {
+                    command.requirements.clone()
+                };
+                let requirements: Vec<_> = programs
+                    .into_iter()
+                    .map(|program| {
+                        tools
+                            .entry((directory.clone(), program.clone()))
+                            .or_insert_with(|| {
+                                let resolved_path = context.environment.resolve(&program, &directory);
+                                let availability = if context.environment.project_wrapper {
+                                    Availability::ProjectEnvironment
+                                } else if resolved_path.is_some() {
+                                    Availability::OnPath
+                                } else {
+                                    Availability::Missing
+                                };
+                                Requirement { program, availability, resolved_path }
+                            })
+                            .clone()
+                    })
+                    .collect();
+                let availability = if requirements.iter().any(|tool| tool.availability == Availability::Missing) {
+                    Availability::Missing
+                } else if requirements.iter().any(|tool| tool.availability == Availability::ProjectEnvironment) {
+                    Availability::ProjectEnvironment
+                } else if requirements.is_empty() {
+                    Availability::Shell
+                } else {
+                    Availability::OnPath
+                };
+                let mut dependencies = file.fingerprint.clone();
+                if command.source == Source::Composer {
+                    // Native executable replacement changes preparation, even
+                    // when the manifest and PATH spelling have not changed.
+                    for tool in &requirements {
+                        use std::os::unix::fs::MetadataExt;
+                        dependencies.push_str(&format!("{:?}", tool));
+                        if let Some(path) = &tool.resolved_path {
+                            let stamp = tool_stamps.entry(path.clone()).or_insert_with(|| {
+                                format!(
+                                    "{:?}",
+                                    fs::metadata(path).ok().map(|m| (
+                                        m.dev(),
+                                        m.ino(),
+                                        m.len(),
+                                        m.mtime(),
+                                        m.mtime_nsec(),
+                                        m.ctime(),
+                                        m.ctime_nsec()
+                                    ))
+                                )
+                            });
+                            dependencies.push_str(stamp);
+                        }
+                    }
+                }
+                let fingerprint = fingerprint(&directory, &recipe, &dependencies);
                 let mut entry = Entry {
                     registry_id: None,
                     branch: None,
                     id: id.clone(),
                     definition_id: Some(id),
                     fingerprint,
-                    kind: Kind::Command,
+                    kind: if command.hook { Kind::Hook } else { Kind::Command },
                     origin: if command.generated { Origin::Generated } else { Origin::Declared },
                     name: command.name.clone(),
                     description: command.desc.clone(),
@@ -366,6 +459,8 @@ impl Snapshot {
                     command: command.run.clone(),
                     recipe,
                     availability,
+                    requirements,
+                    aliases: command.aliases.clone(),
                     favorite: false,
                     favorite_names: Vec::new(),
                     launches: 0,
@@ -435,6 +530,8 @@ impl Snapshot {
                 command: favorite.command.clone(),
                 recipe,
                 availability: Availability::Shell,
+                requirements: Vec::new(),
+                aliases: Vec::new(),
                 favorite: true,
                 favorite_names: vec![favorite.label().into()],
                 launches: 0,
@@ -488,6 +585,8 @@ impl Snapshot {
                 command: run.command.clone(),
                 recipe,
                 availability: Availability::Shell,
+                requirements: Vec::new(),
+                aliases: Vec::new(),
                 favorite: false,
                 favorite_names: Vec::new(),
                 launches: 0,
@@ -550,6 +649,8 @@ impl Snapshot {
                 command: invocation.command.clone(),
                 recipe: invocation.recipe.clone(),
                 availability: Availability::Shell,
+                requirements: Vec::new(),
+                aliases: Vec::new(),
                 favorite: false,
                 favorite_names: Vec::new(),
                 launches: 0,
@@ -607,7 +708,16 @@ impl Snapshot {
         {
             return Err(PrepareError::Stale { expected: expected.into(), actual: entry.fingerprint.clone() });
         }
-        let command = prepare_recipe(&entry.recipe, inputs)?;
+        let mut recipe = entry.recipe.clone();
+        if let Some(timeout) = inputs.timeout_seconds {
+            if entry.source != "composer" || !matches!(entry.kind, Kind::Command | Kind::Hook) {
+                return Err(PrepareError::Inputs("timeout_seconds requires a Composer script definition".into()));
+            }
+            if let Recipe::Tool { argv, .. } = &mut recipe {
+                argv.insert(argv.len() - 2, format!("--timeout={timeout}"));
+            }
+        }
+        let command = prepare_recipe(&recipe, inputs)?;
         let shell = match &entry.recipe {
             Recipe::Shell { shell, .. } | Recipe::Tool { shell, .. } => shell.clone(),
         };

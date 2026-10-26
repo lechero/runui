@@ -970,6 +970,31 @@ fn palette_searches_sources_without_mutating_the_panel_filter_or_selection() {
 }
 
 #[test]
+fn composer_hooks_require_a_query_and_aliases_preview_native_requirements_without_running() {
+    let world = new_world();
+    fs::write(filepath::join(&[&world.dir,"composer.json"]),r#"{"scripts":{"check":"@php never.php","post-install-cmd":"@php never.php"},"scripts-aliases":{"check":["verify"]}}"#).unwrap();
+    let mut h = open(&world);
+    h.keys(&["ctrl+p"]);
+    h.typed("source:composer verify");
+    let screen = h.screen();
+    assert!(screen.contains("check"));
+    assert!(screen.contains("aliases: verify"));
+    assert!(screen.contains("php:"));
+    assert!(screen.contains("composer:"));
+    assert!(!screen.contains("post-install-cmd"));
+    assert!(world.runs.list().unwrap().is_empty());
+    h.keys(&["esc", "ctrl+p"]);
+    h.typed("source:composer kind:hook");
+    let screen = h.screen();
+    assert!(screen.contains("post-install-cmd"));
+    assert!(screen.contains("Lifecycle hook"));
+    h.keys(&["esc"]);
+    let source = h.m.a.panels[PANEL_PROJECT].views.iter().find(|view| view.name == "Composer").unwrap();
+    assert_eq!(source.all.len(), 1);
+    assert!(source.note.contains("kind:hook"));
+}
+
+#[test]
 fn queued_palette_refresh_keeps_the_latest_usable_snapshot_visible() {
     let world = new_world();
     let mut h = open(&world);

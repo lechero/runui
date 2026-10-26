@@ -268,7 +268,7 @@ fn discover_inner(dir: &str, stop: &str, cancel: Option<Arc<AtomicBool>>) -> Dis
         if scan.cancelled() {
             break;
         }
-        for (source, path, label) in candidates(&folder) {
+        for (source, path, label) in candidates(&folder, &mut scan) {
             if let Some(members) = &members
                 && !folder.rel.is_empty()
                 && (members.excluded(&folder.rel) || (source == Source::Npm && !members.contains(&folder.rel)))
@@ -292,6 +292,7 @@ fn discover_inner(dir: &str, stop: &str, cancel: Option<Arc<AtomicBool>>) -> Dis
                 Source::Make => crate::makefile::read_tracked(&path, &mut scan),
                 Source::Compose => crate::compose::read_tracked(&path, label != folder.rel, &mut scan),
                 Source::Maven => crate::maven::read_tracked(&path, stop, &mut scan),
+                Source::Composer => crate::composer::read_tracked(&path, &folder.path, stop, &mut scan),
             };
             files.push(File {
                 source,
@@ -461,7 +462,7 @@ fn folders(
     out
 }
 
-fn candidates(folder: &Folder) -> Vec<(Source, String, String)> {
+fn candidates(folder: &Folder, scan: &mut Scan) -> Vec<(Source, String, String)> {
     let mut out = Vec::new();
     if let Some(file) = first_file(&folder.path, &TASKFILE_NAMES) {
         out.push((Source::Taskfile, file, folder.rel.clone()));
@@ -482,6 +483,18 @@ fn candidates(folder: &Folder) -> Vec<(Source, String, String)> {
     let file = filepath::join(&[&folder.path, "pom.xml"]);
     if is_file(&file) {
         out.push((Source::Maven, file, folder.rel.clone()));
+    }
+    match crate::composer::selection(&folder.path, scan) {
+        Ok(Some((file, _))) => out.push((Source::Composer, file, folder.rel.clone())),
+        Ok(None) => {
+            let file = filepath::join(&[&folder.path, "composer.json"]);
+            if is_file(&file) {
+                out.push((Source::Composer, file, folder.rel.clone()));
+            }
+        }
+        Err(error) => {
+            scan.problem(Some(Source::Composer), &filepath::join(&[&folder.path, ".runui.json"]), error.to_string())
+        }
     }
     out
 }

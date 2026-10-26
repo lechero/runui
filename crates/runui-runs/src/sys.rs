@@ -33,6 +33,18 @@ pub(crate) fn kill(pid: i32, sig: i32) -> io::Result<()> {
     check(unsafe { libc::kill(pid, sig) })
 }
 
+/// Inspection pipes are polled beside the child deadline, so a descendant
+/// retaining stdout cannot hold the caller forever.
+pub(crate) fn nonblocking(fd: RawFd) -> io::Result<()> {
+    // SAFETY: fcntl reads and updates flags on a descriptor owned by the caller.
+    let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+    if flags == -1 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: the descriptor remains open, and O_NONBLOCK is a file status flag.
+    check(unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) })
+}
+
 /// alive says a process is there to signal: kill(pid, 0) succeeding.
 pub fn alive(pid: i32) -> bool {
     kill(pid, 0).is_ok()

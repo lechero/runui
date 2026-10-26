@@ -579,7 +579,7 @@ impl App {
         let mut lines = vec![S_TITLE.render(&format!("runui in {}", self.short(&self.cfg.dir))), String::new()];
         if self.discovery.files.is_empty() {
             lines.push(S_DIM.render(
-                "No Taskfile, package.json, Makefile, compose file or pom.xml here, or in the folders under it.",
+                "No Taskfile, package.json, Makefile, compose file, pom.xml or composer.json here, or in the folders under it.",
             ));
         }
         for diagnostic in &self.discovery.diagnostics {
@@ -593,6 +593,7 @@ impl App {
                 project::Source::Make => "targets",
                 project::Source::Compose => "commands",
                 project::Source::Maven => "builds",
+                project::Source::Composer => "scripts / hooks",
             };
             let mut line = format!("{:<width$}  {} {what}", f.rel_path(), f.commands.len());
             if let Some(err) = &f.err {

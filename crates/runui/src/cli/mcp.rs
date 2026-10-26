@@ -156,7 +156,7 @@ fn tools() -> Vec<Value> {
                 "project": {"type":"string","description":"registry_id returned by registered discovery; required with a registered id launch."},
                 "fingerprint": {"type":"string","description":"Expected definition fingerprint; stale selections fail before launch."},
                 "scope": {"type":"string","enum":["project","workspace","registered"],"default":"project","description":"Catalog scope used to resolve an id; raw commands use project context."},
-                "inputs": {"type":"object","properties":{"args":{"type":"array","items":{"type":"string"}},"variables":{"type":"object","additionalProperties":{"type":"string"}}},"additionalProperties":false},
+                "inputs": {"type":"object","properties":{"args":{"type":"array","items":{"type":"string"}},"variables":{"type":"object","additionalProperties":{"type":"string"}},"timeout_seconds":{"type":"integer","minimum":0,"maximum":u32::MAX,"description":"Explicit Composer script timeout in seconds; 0 disables it. Omit to honor project settings."}},"additionalProperties":false},
                 "directory": {"type": "string", "description": "Working directory, absolute or relative to the selected project; defaults to the project directory."},
                 "name": {"type": "string", "description": "Optional label shown in runui."}
             }, "oneOf":[{"required":["command"],"not":{"required":["id"]}},{"required":["id"],"not":{"required":["command"]}}], "additionalProperties": false}
@@ -283,7 +283,7 @@ fn list_commands(w: &Workspace, args: CatalogArgs) -> Result<Value> {
     }
     let snapshot = w.catalog_scoped(args.scope)?;
     let mut query = runui_catalog::Query::parse(&args.query).map_err(|error| anyhow!(error))?;
-    query.kinds = vec![runui_catalog::Kind::Command, runui_catalog::Kind::Favorite];
+    query.commands();
     query.limit = limit + 1;
     query.offset = args.offset;
     let hits = snapshot.search(&query);

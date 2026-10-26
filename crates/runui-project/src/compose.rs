@@ -93,6 +93,9 @@ pub(crate) fn read_tracked(
             defining_line: None,
             variant: String::new(),
             generated: true,
+            aliases: Vec::new(),
+            hook: false,
+            requirements: Vec::new(),
         }
     };
     let mut cmds = vec![

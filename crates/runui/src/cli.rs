@@ -25,7 +25,7 @@ pub(crate) const EXIT_USAGE: i32 = 2;
 
 const USAGE: &str = "runui keeps a folder's commands at hand and runs them: the project's own
 (a Taskfile's tasks, package.json's scripts, a Makefile's targets, a docker
-compose file's services, a Maven pom's builds), in its folder and the ones
+compose file's services, Maven builds, Composer scripts), in its folder and the ones
 under it three deep (a monorepo's packages, a Maven project's modules), the
 ones you star as favorites (m), and commands of your own (a). What a command
 prints shows as it's printed. Quit, and it keeps running; open runui again
@@ -41,15 +41,16 @@ Usage:
   runui mcp [-C DIR]    serve project commands and runs to an MCP client over stdio
   runui commands [-C DIR] [--query TEXT] [--json]  search the shared catalog
   runui find [-C DIR] [--mode commands|recent|all] [--json] [QUERY]
-  runui inspect [-C DIR] [--json] ID  inspect a command and its fingerprint
+  runui inspect [-C DIR] [--json] [--native] ID  inspect a command and its fingerprint
   runui run [-C DIR] [--json] [--fingerprint VALUE] ID -- [ARGS...]
   runui projects [add DIR|forget ID_OR_DIR] [--json]  manage explicit checkouts
+  Composer run accepts --timeout SECONDS (0 disables; default: project setting).
   Catalog commands accept --scope project|workspace|registered (default: project).
   Registered inspect/run also require --project PROJECT_ID from discovery.
 
 Flags:
   -C DIR  the folder (default: this one, or the project above it with a
-          Taskfile, package.json, Makefile, compose file or pom.xml, up to
+          Taskfile, package.json, Makefile, compose file, pom.xml or composer.json, up to
           the repository's root)
 
 The favorites are kept in ~/.config/runui/favorites.json, the runs (what each
@@ -384,17 +385,24 @@ fn list(w: &Workspace, out: &mut dyn Write) -> Result<()> {
     if files.is_empty() {
         writeln!(
             out,
-            "\nNo Taskfile, package.json, Makefile, compose file or pom.xml here, or in the folders under it."
+            "\nNo Taskfile, package.json, Makefile, compose file, pom.xml or composer.json here, or in the folders under it."
         )?;
     }
     for f in files {
-        let lines: Vec<[String; 3]> =
-            f.commands.iter().map(|c| [c.name.clone(), c.run.clone(), c.desc.clone()]).collect();
+        let lines: Vec<[String; 3]> = f
+            .commands
+            .iter()
+            .filter(|command| !command.hook)
+            .map(|c| [c.name.clone(), c.run.clone(), c.desc.clone()])
+            .collect();
         let mut title = format!("{} ({})", f.source.label(), f.rel_path());
         if let Some(err) = &f.err {
             title += &format!(": {err}");
         }
         rows(out, &title, &lines)?;
+        if f.commands.iter().any(|command| command.hook) {
+            writeln!(out, "  Lifecycle hooks: runui find kind:hook source:composer")?;
+        }
     }
     for diagnostic in &discovery.diagnostics {
         writeln!(out, "\nDiscovery incomplete: {}", diagnostic.description(&w.dir))?;

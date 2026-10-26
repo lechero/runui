@@ -24,6 +24,8 @@ struct Options {
     positional: Vec<String>,
     scope: Scope,
     project: Option<String>,
+    timeout_seconds: Option<u32>,
+    native: bool,
 }
 
 fn parse(command: &str, args: &[String]) -> Result<Options, Failure> {
@@ -38,6 +40,10 @@ fn parse(command: &str, args: &[String]) -> Result<Options, Failure> {
             }
             result.args.extend_from_slice(&args[index..]);
             break;
+        }
+        if arg == "--native" && command == "inspect" {
+            result.native = true;
+            continue;
         }
         if arg == "--json" {
             result.json = true;
@@ -63,12 +69,13 @@ fn parse(command: &str, args: &[String]) -> Result<Options, Failure> {
                 | "--var"
                 | "--scope"
                 | "--project"
+                | "--timeout"
         ) {
             return Err(Failure::Usage(format!("unknown catalog option {name}")));
         }
         let applicable = match name {
             "--query" | "--mode" | "--limit" | "--offset" => matches!(command, "commands" | "find"),
-            "--fingerprint" | "--var" => command == "run",
+            "--fingerprint" | "--var" | "--timeout" => command == "run",
             "--project" => matches!(command, "inspect" | "run"),
             _ => true,
         };
@@ -87,6 +94,13 @@ fn parse(command: &str, args: &[String]) -> Result<Options, Failure> {
             "--query" => result.query = Some(value),
             "--fingerprint" => result.fingerprint = Some(value),
             "--mode" => result.mode = Some(value),
+            "--timeout" => {
+                result.timeout_seconds = Some(
+                    value
+                        .parse()
+                        .map_err(|_| Failure::Usage("--timeout needs seconds as a non-negative integer".into()))?,
+                )
+            }
             "--limit" => {
                 let size = value.parse::<usize>().map_err(|_| Failure::Usage("--limit needs an integer".into()))?;
                 if !(1..=500).contains(&size) {
@@ -156,7 +170,10 @@ pub(super) fn dispatch(command: &str, args: &[String], output: &mut dyn Write) -
             let text = options.query.unwrap_or_else(|| options.positional.join(" "));
             let mut query = Query::parse(&text).map_err(Failure::Usage)?;
             query.kinds = match options.mode.as_deref().unwrap_or("commands") {
-                "commands" => vec![Kind::Command, Kind::Favorite],
+                "commands" => {
+                    query.commands();
+                    query.kinds.clone()
+                }
                 "recent" => vec![Kind::Recent],
                 "all" => Vec::new(),
                 mode => return Err(Failure::Usage(format!("mode {mode:?} is not available yet"))),
@@ -205,14 +222,33 @@ pub(super) fn dispatch(command: &str, args: &[String], output: &mut dyn Write) -
                     return Err(Failure::Usage("inspect does not accept launch inputs".into()));
                 }
                 let entry = snapshot.get(id).ok_or_else(|| anyhow!("command {id} does not exist in this scope"))?;
+                let native = options
+                    .native
+                    .then(|| runui_catalog::inspection::check(entry, &std::sync::atomic::AtomicBool::new(false)));
                 if options.json {
-                    serde_json::to_writer_pretty(&mut *output, entry).map_err(anyhow::Error::from)?;
+                    let mut value = serde_json::to_value(entry).map_err(anyhow::Error::from)?;
+                    if let Some(report) = &native {
+                        value["native_inspection"] = json!(report);
+                    }
+                    serde_json::to_writer_pretty(&mut *output, &value).map_err(anyhow::Error::from)?;
                     writeln!(output).map_err(anyhow::Error::from)?;
                 } else {
-                    writeln!(output,"{}\n{}\n$ {}\ncwd: {}\nsource: {}\nentry: {}\ndefinition: {}\nfingerprint: {}\navailability: {:?}",entry.id,text_line(&entry.name),text_line(&entry.command),text_line(&entry.directory),entry.source,entry.entry_file.as_deref().unwrap_or("saved command"),entry.defining_file.as_deref().unwrap_or("saved command"),entry.fingerprint,entry.availability).map_err(anyhow::Error::from)?;
+                    writeln!(output,"{}\n{}\n$ {}\ncwd: {}\nsource: {}\nentry: {}\ndefinition: {}\nfingerprint: {}\navailability: {}",entry.id,text_line(&entry.name),text_line(&entry.command),text_line(&entry.directory),entry.source,entry.entry_file.as_deref().unwrap_or("saved command"),entry.defining_file.as_deref().unwrap_or("saved command"),entry.fingerprint,entry.availability.label()).map_err(anyhow::Error::from)?;
+                    if let Some(report) = &native {
+                        writeln!(
+                            output,
+                            "Native inspection: {}",
+                            text_line(&serde_json::to_string(report).map_err(anyhow::Error::from)?)
+                        )
+                        .map_err(anyhow::Error::from)?;
+                    }
                 }
             } else {
-                let inputs = Inputs { args: options.args, variables: options.variables };
+                let inputs = Inputs {
+                    args: options.args,
+                    variables: options.variables,
+                    timeout_seconds: options.timeout_seconds,
+                };
                 let prepared =
                     snapshot.prepare(id, options.fingerprint.as_deref(), &inputs).map_err(anyhow::Error::from)?;
                 let mut store = workspace.runs()?;

@@ -1,6 +1,6 @@
 # Shared command catalog
 
-`ctrl+p`, the catalog CLI, and MCP use the same definitions, IDs, fingerprints, and preparation. This covers the existing five sources, saved favorites, persisted runs, and recent runui invocations in Project, Workspace and Registered scopes. The [implementation audit](implementation-status.md) tracks the remaining complete-v1 work.
+`ctrl+p`, the catalog CLI, and MCP use the same definitions, IDs, fingerprints, and preparation. This covers the six sources (including Composer), saved favorites, persisted runs, and recent runui invocations in Project, Workspace and Registered scopes. The [implementation audit](implementation-status.md) tracks the remaining complete-v1 work.
 
 ## Find and understand
 
@@ -44,6 +44,24 @@ Each entry includes the source and origin, physical checkout and execution direc
 
 IDs use a versioned SHA-256 digest of source, checkout, entry path, native name, variant and cwd. They survive label or command-body edits in the same checkout; a different worktree has distinct IDs. Fingerprints cover execution recipes and source dependencies. Treat both strings as opaque. IDs are not authorization tokens.
 
+## Composer
+
+`composer.json` scripts appear in the Composer tab and shared catalog, including nested projects; `vendor` stays excluded. Runui invokes `composer run-script -- NAME ARGS...` in the definition's cwd. The first `--` protects the script name and all forwarded arguments, including leading hyphens. Composer retains ownership of arrays, PHP callbacks, `@script`, `@php`, and `@composer`; runui does not flatten their shell text. Descriptions and `scripts-aliases` annotate one canonical definition rather than creating duplicate command IDs or usage counters. Invalid metadata produces diagnostics while retaining valid scripts and other sources.
+
+Only exact [documented Composer events](https://getcomposer.org/doc/articles/scripts.md#event-names) are classified as hooks; an arbitrary `pre-deploy` remains an ordinary script. Hooks are hidden from Commands and the Project tab by default. Search `kind:hook source:composer` to inspect or explicitly run them. `--mode all` also includes them. A hook's native event restrictions still belong to Composer.
+
+Ambient `COMPOSER` never selects a manifest for another indexed checkout. Every recipe sets it to the selected absolute file. To choose an alternate manifest or local PHAR, create `.runui.json` in the command's working folder:
+
+```json
+{"version":1,"composer":{"manifest":"config/composer.dev.json","phar":"tools/composer.phar"}}
+```
+
+Both paths must stay inside that folder, including after symlink resolution. Omit `manifest` to use `composer.json`; omit `phar` to use PATH Composer. No PHAR is discovered or executed automatically. A selected PHAR runs through PHP; an invalid/missing selection is a source diagnostic. Manifests, settings, selected PHAR metadata, parent mise/tool-version files and resolved executable identity participate in refresh/preparation checks. PHP and Composer readiness are separate requirements; a launcher file alone does not prove PHP exists. With mise, `project_environment` means unverified rather than ready.
+
+`alt+i` in the palette, or `runui inspect --native --json ID`, explicitly probes PHP and Composer versions. Supported Composer checks require 2.2 or newer in the 2.x series. Composer is called with `--no-plugins --no-scripts --no-interaction --no-ansi --version` and network disabled. These checks create no run, usage event or unread result. Each probe shares a 64-KiB stdout/stderr budget and a five-second deadline. Closing the palette cancels its probe; timeout, cancellation, output overflow and parent exit clean up its process group. Results belong to the checked fingerprint and are not persisted as readiness. Project shell wrappers are currently skipped with an explanation, since activating them can provision tools or evaluate project configuration. This limitation is explicit rather than silently using a different environment.
+
+Composer's [configured process timeout](https://getcomposer.org/doc/06-config.md#process-timeout) remains untouched by default. An explicit `runui run --timeout SECONDS ID -- ARGS...` overrides it for that launch; `0` disables it. MCP uses `inputs.timeout_seconds`. Other providers reject this input. General argument/timeout preset editing in the TUI remains part of the next inputs milestone.
+
 ## Prepare and launch
 
 ```sh
@@ -55,7 +73,7 @@ The definition is resolved from current files before launch. An expected fingerp
 
 Search text and launch inputs are separate. Launch/inspect commands reject search-only options instead of silently ignoring them. Inspect returns one entry; a successful launch returns run metadata plus `definition_id` and `fingerprint`. A history-write error is reported separately as `history_error` because the process may already be running. Run rows focus existing runs in the TUI; they cannot be launched as command definitions.
 
-MCP `list_commands` accepts the same query text, `scope` and page bounds and returns the same IDs. `start_run` accepts either a raw `command` or catalog `id`. For an ID, use the same `scope`; optional `fingerprint` and `inputs` (`args` array, `variables` object) use the same preparation as the CLI. Do not send `directory` with an ID: its execution context is part of the definition. Raw callers keep their existing project command/directory behavior. MCP never receives private shell recall.
+MCP `list_commands` accepts the same query text, `scope` and page bounds and returns the same IDs. `start_run` accepts either a raw `command` or catalog `id`. For an ID, use the same `scope`; optional `fingerprint` and `inputs` (`args` array, `variables` object, and optional Composer `timeout_seconds`) use the same preparation as the CLI. Do not send `directory` with an ID: its execution context is part of the definition. Raw callers keep their existing project command/directory behavior. MCP never receives private shell recall.
 
 ## Palette actions and recall
 
@@ -74,3 +92,5 @@ Usage state lives in `catalog-v1.json` beside the run folders. Detailed recall r
 Run `task test` and `task lint` for the Rust contracts. After `task build`, run `python3 -B scripts/verify-palette.py` for real terminal checks (tmux, Make, Python and Pillow required). It uses private tmux sockets and temporary HOME/config/state, verifies source/favorite actions, panel filter restoration, wide/narrow rendering, supervised launch, Recent/current definition, and terminal handoff with a format-like directory name. Its PNG/ANSI captures are left in a printed temporary folder. Set `RUNUI_BIN` to check another build. It does not install the binary, access personal shell history, or copy to the system clipboard.
 
 `python3 -B scripts/verify-registry.py` also creates two disposable Git repositories and two actual worktrees. It checks duplicate names/IDs, a missing checkout, registered search/diagnostics, project selection/open, exact supervised cwd, and forgetting while keeping files/runs/output. All its configuration and processes are isolated; wide/narrow PNG/ANSI captures are retained in its printed temporary folder.
+
+`RUNUI_BIN=bin/runui RUNUI_PHP=/path/to/php RUNUI_COMPOSER_PHAR=/path/to/composer.phar python3 -B scripts/verify-composer.py` runs disposable native Composer fixtures. It downloads/installs nothing and isolates HOME, Composer config/cache, PATH and runui state. CI supplies real PHP and checksum-pinned official Composer 2.2.30 and 2.10.3 PHARs. It checks arrays, callbacks, helpers, alias/hook search, literal arguments/names, cwd, alternate manifests, local PHARs, passive version inspection, CLI/MCP identity and agent attribution.
