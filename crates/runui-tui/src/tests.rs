@@ -108,6 +108,7 @@ impl Harness<'_> {
     fn send(&mut self, msg: Msg) {
         let cmd = self.m.a.update(msg);
         self.run(cmd);
+        self.screen();
     }
 
     fn run(&mut self, cmd: Cmd) {
@@ -398,40 +399,99 @@ fn an_agents_runs_have_a_tab_of_their_own() {
 }
 
 #[test]
-fn viewing_finished_output_acknowledges_its_status() {
+fn previewing_finished_output_acknowledges_its_status() {
+    for (name, command) in [("done", "echo done"), ("failed", "echo failed; exit 1")] {
+        let w = new_world();
+        let (r, err) = w.runs.start(&w.dir, name, command);
+        assert!(err.is_none(), "{err:?}");
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !w.runs.get(&r.id).is_ok_and(|r| r.state() == runs::State::Exited) {
+            assert!(Instant::now() < deadline, "the run never ended");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+
+        let mut h = open(&w);
+        assert!(!w.runs.acknowledged(&r), "an unviewed run was dismissed");
+        h.keys(&["3"]);
+        assert_eq!(h.selected().run.id, r.id);
+        assert_eq!(h.m.a.focus, Focus::Side);
+        assert!(w.runs.acknowledged(&r), "previewing the output didn't dismiss it");
+        assert!(w.runs.get(&r.id).is_ok(), "viewing removed the run");
+        assert!(fs::read_to_string(r.output()).unwrap().contains(name), "viewing removed the output");
+    }
+}
+
+#[test]
+fn only_the_previewed_run_is_acknowledged() {
     let w = new_world();
-    let (r, err) = w.runs.start(&w.dir, "done", "echo done");
+    let mut ended = Vec::new();
+    for name in ["earlier", "later"] {
+        let (r, err) = w.runs.start(&w.dir, name, &format!("echo {name}; exit 1"));
+        assert!(err.is_none(), "{err:?}");
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !w.runs.get(&r.id).is_ok_and(|r| r.state() == runs::State::Exited) {
+            assert!(Instant::now() < deadline, "the run never ended");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        ended.push(r);
+    }
+
+    let mut h = open(&w);
+    h.keys(&["3"]);
+    assert_eq!(h.selected().run.id, ended[1].id);
+    assert!(w.runs.acknowledged(&ended[1]), "the previewed run was not dismissed");
+    assert!(!w.runs.acknowledged(&ended[0]), "another visible row was dismissed");
+    h.keys(&["j"]);
+    assert_eq!(h.selected().run.id, ended[0].id);
+    assert!(w.runs.acknowledged(&ended[0]), "moving to its output didn't dismiss it");
+}
+
+#[test]
+fn viewed_output_acknowledges_a_run_when_it_finishes() {
+    for focused in [false, true] {
+        let w = new_world();
+        let (r, err) = w.runs.start(&w.dir, "soon", "sleep 1; echo finished");
+        assert!(err.is_none(), "{err:?}");
+        let mut h = open(&w);
+        h.keys(&["3"]);
+        if focused {
+            h.keys(&["enter"]);
+        }
+        assert!(!w.runs.acknowledged(&r), "a live run was dismissed");
+        h.wait_for("finished");
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !w.runs.acknowledged(&r) {
+            h.refresh();
+            assert!(Instant::now() < deadline, "the viewed run was not dismissed when it ended");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+}
+
+#[test]
+fn previewing_a_live_run_does_not_acknowledge_its_future_result() {
+    let w = new_world();
+    let (r, err) = w.runs.start(
+        &w.dir,
+        "waiting",
+        "echo waiting; while [ ! -f finish ]; do sleep 0.02; done; echo finished; exit 1",
+    );
     assert!(err.is_none(), "{err:?}");
+    let mut h = open(&w);
+    h.wait_for("waiting");
+    assert!(w.runs.get(&r.id).unwrap().live());
+    assert!(!w.runs.acknowledged(&r), "a live run was dismissed");
+    h.keys(&["2"]);
+    fs::write(filepath::join(&[&w.dir, "finish"]), "").unwrap();
     let deadline = Instant::now() + Duration::from_secs(10);
     while !w.runs.get(&r.id).is_ok_and(|r| r.state() == runs::State::Exited) {
         assert!(Instant::now() < deadline, "the run never ended");
         std::thread::sleep(Duration::from_millis(20));
     }
-
-    let mut h = open(&w);
+    h.refresh();
+    assert!(!w.runs.acknowledged(&r), "a run that finished out of view was dismissed");
     h.keys(&["3"]);
-    assert_eq!(h.selected().run.id, r.id);
-    assert!(!w.runs.acknowledged(&r), "opening and previewing dismissed the run");
-    h.keys(&["enter"]);
-    assert!(w.runs.acknowledged(&r), "viewing the output didn't dismiss it");
-    assert!(w.runs.get(&r.id).is_ok(), "viewing removed the run");
-}
-
-#[test]
-fn focused_output_acknowledges_a_run_when_it_finishes() {
-    let w = new_world();
-    let (r, err) = w.runs.start(&w.dir, "soon", "sleep 1; echo finished");
-    assert!(err.is_none(), "{err:?}");
-    let mut h = open(&w);
-    h.keys(&["3", "enter"]);
-    assert!(!w.runs.acknowledged(&r), "a live run was dismissed");
-    h.wait_for("finished");
-    let deadline = Instant::now() + Duration::from_secs(10);
-    while !w.runs.acknowledged(&r) {
-        h.refresh();
-        assert!(Instant::now() < deadline, "the focused run was not dismissed when it ended");
-        std::thread::sleep(Duration::from_millis(20));
-    }
+    assert!(w.runs.acknowledged(&r), "viewing the finished run didn't dismiss it");
 }
 
 #[test]
