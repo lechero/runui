@@ -14,6 +14,7 @@ use runui_runs::{self as runs, Run, State};
 use runui_tea::tea::Program;
 use runui_tui as tui;
 
+mod catalog;
 mod mcp;
 
 // Exit codes.
@@ -37,6 +38,10 @@ Usage:
   runui ps              print every run, everywhere, the ones going first
   runui status [clear|tmux]  print counts, clear finished counts, or format for tmux
   runui mcp [-C DIR]    serve project commands and runs to an MCP client over stdio
+  runui commands [-C DIR] [--query TEXT] [--json]  search the shared catalog
+  runui find [-C DIR] [--mode commands|recent|all] [--json] [QUERY]
+  runui inspect [-C DIR] [--json] ID  inspect a command and its fingerprint
+  runui run [-C DIR] [--json] [--fingerprint VALUE] ID -- [ARGS...]
 
 Flags:
   -C DIR  the folder (default: this one, or the project above it with a
@@ -101,6 +106,9 @@ fn dispatch(
             return Err(Failure::Usage(format!("{SUPERVISE_CMD} takes a run's folder")));
         }
         return Ok(runs::supervise(&args[0])?);
+    }
+    if matches!(cmd, "commands" | "find" | "inspect" | "run") {
+        return catalog::dispatch(cmd, args, stdout);
     }
     let (dir, rest) = parse_flags(args)?;
     let clear_status = cmd == "status" && rest.as_slice() == ["clear"];
@@ -184,6 +192,33 @@ struct Workspace {
 }
 
 impl Workspace {
+    fn catalog(&self) -> Result<runui_catalog::Snapshot> {
+        let store = self.runs()?;
+        let usage_store = runui_catalog::usage::Store::for_runs(&store.root);
+        let observed = store.list()?;
+        let _ = usage_store.reconcile(&observed);
+        let usage = usage_store.load();
+        let mut context = runui_catalog::Context::new(&self.dir, &self.repo);
+        context.environment = context.environment.with_shell(&store.shell);
+        let default_usage = runui_catalog::usage::Data::default();
+        let mut snapshot = runui_catalog::Snapshot::build(
+            &context,
+            &project::discover(&self.dir, &self.repo),
+            &self.favorites()?.for_dir(&self.dir),
+            &observed,
+            usage.as_ref().unwrap_or(&default_usage),
+        );
+        if let Err(error) = usage {
+            snapshot.diagnostics.push(runui_catalog::Diagnostic {
+                path: usage_store.file().to_string_lossy().into_owned(),
+                message: error.to_string(),
+                source: Some("usage".into()),
+                kind: "history".into(),
+            });
+        }
+        Ok(snapshot)
+    }
+
     fn favorites(&self) -> Result<favorites::Store> {
         favorites::Store::open(&favorites::default_file()?)
     }
@@ -261,7 +296,7 @@ fn list(w: &Workspace, out: &mut dyn Write) -> Result<()> {
     }
     let mut lines = Vec::new();
     for r in &all {
-        if let Some(rel) = filepath::rel(&w.dir, &r.dir)
+        if let Some(rel) = runui_catalog::relative_within(&w.dir, &r.dir)
             && rel != ".."
             && !rel.starts_with("../")
         {

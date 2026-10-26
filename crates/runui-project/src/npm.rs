@@ -46,6 +46,12 @@ pub(crate) fn read_tracked(
         .map(|(name, line)| Command {
             source: Source::Npm,
             run: format!("{manager} run {}", quote(&name)),
+            argv: vec![manager.clone(), "run".into(), name.clone()],
+            args_separator: manager == "npm",
+            defining_file: path.into(),
+            defining_line: None,
+            variant: String::new(),
+            generated: false,
             name,
             desc: line,
         })
@@ -81,12 +87,17 @@ fn read_scripts(data: &[u8]) -> Result<(Vec<(String, String)>, String), String> 
 /// isn't a string is skipped.
 fn read_string_pairs(dec: &mut Decoder) -> Result<Vec<(String, String)>, String> {
     expect(dec, b'{')?;
-    let mut out = Vec::new();
+    let mut out: Vec<(String, String)> = Vec::new();
     while dec.more() {
         let name = dec.decode_string().map_err(|e| e.to_string())?.unwrap_or_default();
         let raw = dec.decode_raw().map_err(|e| e.to_string())?;
         if let Ok(line) = jsontext::unmarshal_string(raw) {
-            out.push((name, line.unwrap_or_default()));
+            let line = line.unwrap_or_default();
+            if let Some((_, previous)) = out.iter_mut().find(|(key, _)| key == &name) {
+                *previous = line;
+            } else {
+                out.push((name, line));
+            }
         }
     }
     dec.token().map_err(|e| e.to_string())?; // the closing brace

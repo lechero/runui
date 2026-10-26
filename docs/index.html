@@ -117,6 +117,7 @@ brew install lechero/runui/runui</code></pre><p>Homebrew builds Runui from sourc
           <article class="source-card"><span class="source-tag">04 / CONTAINERS</span><h3>Compose</h3><p>Start all services, rebuild, stop, inspect, follow logs, or start a single service.</p><code>docker compose up</code></article>
           <article class="source-card"><span class="source-tag">05 / JAVA</span><h3>Maven</h3><p>Install, verify, test, and profile builds. Uses the project's <code>mvnw</code> when it has one.</p><code>./mvnw clean verify</code></article>
         </div>
+        <div class="callout"><strong>One search across sources</strong><p>Press <kbd>ctrl+p</kbd> to search commands and favorites together. Try <code>source:npm test</code> or <code>dir:apps/web build</code>. The preview shows the exact command, cwd, provenance, and availability; <kbd>ctrl+v</kbd> opens scrollable details. <kbd>enter</kbd> runs or focuses live output; <kbd>alt+r</kbd> starts another. <kbd>esc</kbd> restores your panel selection and filter.</p><p><kbd>tab</kbd> switches to Recent invocations, retaining exact commands after output pruning. <kbd>alt+u</kbd> selects the current definition separately. <kbd>alt+m</kbd> stars, <kbd>ctrl+y</kbd> copies, <kbd>ctrl+o</kbd> opens source, and <kbd>ctrl+t</kbd> opens a terminal through tmux or <code>RUNUI_TERMINAL</code>. The current scope is Project. Workspace/registered search, Composer, Cargo, shell recall and presets remain in progress. <a href="command-catalog.md">Catalog reference</a>.</p></div>
         <figure class="screen"><a href="assets/scripts.png" aria-label="Open full-size screenshot of package scripts"><img src="assets/scripts.png" width="1610" height="716" alt="Project panel on the package.json tab, showing root scripts and scripts from apps/web" loading="lazy"></a><figcaption>Use <kbd>2</kbd> for Project and <kbd>[</kbd> / <kbd>]</kbd> to switch among file types. This tab includes scripts in <code>apps/web</code>.</figcaption></figure>
         <div class="source-shots"><figure class="screen"><a href="assets/makefile.png" aria-label="Open full-size Makefile screenshot"><img src="assets/makefile.png" width="1610" height="716" alt="Project panel listing Make targets and their comments" loading="lazy"></a><figcaption>Makefile targets</figcaption></figure><figure class="screen"><a href="assets/compose.png" aria-label="Open full-size Compose screenshot"><img src="assets/compose.png" width="1610" height="716" alt="Project panel listing Compose actions and services" loading="lazy"></a><figcaption>Compose actions and services</figcaption></figure><figure class="screen"><a href="assets/maven.png" aria-label="Open full-size Maven screenshot"><img src="assets/maven.png" width="1610" height="716" alt="Project panel listing Maven goals and a profile build" loading="lazy"></a><figcaption>Maven builds and profiles</figcaption></figure></div>
         <div class="callout"><strong>When files change</strong><p>runui checks changes in the background, including included Taskfiles, new nested command files, parent lockfiles, and Maven wrappers. Press <kbd>r</kbd> to force a rescan. Shared Taskfiles appear under every include namespace. Discovery reports skipped includes, unreadable folders, and limits (three levels, 2,000 folders, 150 definition files), while keeping usable commands.</p></div>
@@ -199,6 +200,9 @@ set -ag status-right '#(runui status tmux)'</code></pre></div>
         <div class="cli-list">
           <div><code>runui [-C DIR]</code><p>Open the interface in the current project or a specified folder. <code>runui -h</code> prints its built-in help.</p></div>
           <div><code>runui list [-C DIR]</code><p>Print this folder's favorites, discovered commands, and runs. This only reads data.</p></div>
+          <div><code>runui commands [-C DIR] [--query TEXT] [--json]</code><p>Search the shared catalog; <code>find</code> is equivalent. Use <code>--mode recent</code> for exact invocation recall, <code>--limit</code> and <code>--offset</code> for bounded pages.</p></div>
+          <div><code>runui inspect [-C DIR] ID [--json]</code><p>Show a definition's execution context, provenance, availability and fingerprint.</p></div>
+          <div><code>runui run [-C DIR] ID [--fingerprint FP] [--json] [-- ARGS]</code><p>Resolve and prepare a current definition, then start its supervisor. Arguments are literal; <code>--var NAME=value</code> supports Task/Make variables and Maven properties.</p></div>
           <div><code>runui ps</code><p>Print every run from every folder, with live runs first.</p></div>
           <div><code>runui status [clear|tmux]</code><p>Print plain counts, dismiss finished results, or print a colored tmux segment with zero values hidden. Counts cover every folder; stopped runs are omitted.</p></div>
           <div><code>runui mcp [-C DIR]</code><p>Serve local MCP tools for discovering commands and managing persistent runs over stdio.</p></div>
@@ -232,21 +236,21 @@ set -ag status-right '#(runui status tmux)'</code></pre></div>
 }</code></pre></div>
         <p class="fine-print">MCP clients use different configuration file names and shapes; use these command and argument values in your client's MCP server settings. Use <code>command -v runui</code> to find the binary. Linux home folders commonly start with <code>/home/you</code>.</p>
         <div class="table-wrap"><table><thead><tr><th scope="col">Tool</th><th scope="col">What it does</th></tr></thead><tbody>
-          <tr><td><code>list_commands</code></td><td>With no arguments, return discovered commands and favorites with exact shell commands, working directories, and file-reading errors. <code>complete</code> and <code>diagnostics</code> explain scan limits and skipped definitions.</td></tr>
-          <tr><td><code>start_run</code></td><td>Start a shell command under a persistent supervisor. Accepts <code>command</code>, optional <code>directory</code>, and optional <code>name</code>; returns the run, recorded as started by the client's name, which the Agents tab shows.</td></tr>
+          <tr><td><code>list_commands</code></td><td>Return a catalog page with exact commands/cwd, IDs, fingerprints and provenance. Optional <code>query</code>, <code>limit</code> (default 200, max 500), and <code>offset</code>; follow <code>next_offset</code>. <code>complete</code> and <code>diagnostics</code> explain limitations.</td></tr>
+          <tr><td><code>start_run</code></td><td>Start a persistent supervised run from either catalog <code>id</code> with optional <code>fingerprint</code> and <code>inputs</code>, or raw <code>command</code> with optional <code>directory</code>. Optional <code>name</code> labels either form. Catalog preparation rejects stale definitions and preserves literal arguments. The Agents tab shows the client's name.</td></tr>
           <tr><td><code>list_runs</code></td><td>List runs across all folders, with an optional exact working directory filter.</td></tr>
           <tr><td><code>get_run</code></td><td>Accept <code>id</code>; return state, timestamps, <code>exit_code</code>, <code>agent</code>, <code>output_file</code>, and other metadata. State <code>exited</code> covers success and failure; check <code>exit_code</code> for the outcome.</td></tr>
           <tr><td><code>read_output</code></td><td>Read the latest plain-text tail by <code>id</code>, with optional <code>lines</code> (100 by default, 1–500 allowed). Returns at most 64 KiB plus state and a <code>truncated</code> flag. Poll to follow a live run; calls return a tail, not an incremental cursor.</td></tr>
           <tr><td><code>stop_run</code></td><td>Ask the supervisor to stop the run's process group, then use <code>get_run</code> to see its final state.</td></tr>
         </tbody></table></div>
         <details class="reference-details"><summary>Tool-call examples</summary>
-          <p>These are the <code>tools/call</code> parameters after your client has initialized the connection. Use the command and directory returned by <code>list_commands</code>.</p>
+          <p>These are the <code>tools/call</code> parameters after your client has initialized the connection. Copy the ID and fingerprint returned by <code>list_commands</code>.</p>
           <div class="code-grid">
             <div class="code-card"><div class="code-label">Start a discovered script</div><pre><code>{
   "name": "start_run",
   "arguments": {
-    "command": "pnpm run dev",
-    "directory": "apps/web",
+    "id": "ID_FROM_LIST_COMMANDS",
+    "fingerprint": "FINGERPRINT_FROM_LIST_COMMANDS",
     "name": "web preview"
   }
 }</code></pre></div>
@@ -268,6 +272,7 @@ set -ag status-right '#(runui status tmux)'</code></pre></div>
         <p>Favorites and run history live in ordinary files under your home directory. You can inspect, back up, or remove them yourself.</p>
         <div class="file-list"><div><span>Favorites</span><code>~/.config/runui/favorites.json</code><small>or under <code>$XDG_CONFIG_HOME</code></small></div><div><span>Runs, metadata &amp; output</span><code>~/.local/state/runui/runs/</code><small>or under <code>$XDG_STATE_HOME</code></small></div></div>
         <p>A run's folder holds <code>run.json</code>, <code>output.log</code>, a lock held by its supervisor, and a <code>status.seen</code> marker after review. The lock tells Runui whether the run is still alive, even after the interface exits.</p>
+        <p><code>catalog-v1.json</code> beside the run folders keeps up to 1,000 recent invocations for 180 days and 2,000 aggregate keys independently of output retention. Launches from TUI, CLI and MCP are deduplicated by run ID. It uses atomic writes, a separate writer lock and mode <code>0600</code>; corrupt state is backed up before repair. Ordinary search does not read personal shell history. Reviewing output does not increase usage, and a palette covering output does not review it.</p>
         <div class="callout"><strong>Keep what matters</strong><p>Runui keeps recent completed runs so you can return to their output. The Runs panel lets you stop a live command or forget an ended one. Viewing a finished run’s output clears its completed or errored status count without deleting the history. Press <kbd>4</kbd> for successful and failed results from every folder; Log → All keeps the reviewed history. Starting a new run retains the 40 most recent previous ended attempts.</p></div>
       </section>
 

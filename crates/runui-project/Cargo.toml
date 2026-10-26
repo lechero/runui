@@ -10,6 +10,7 @@ publish = false
 [dependencies]
 runui-core.workspace = true
 anyhow.workspace = true
+sha2.workspace = true
 regex.workspace = true
 
 [dev-dependencies]

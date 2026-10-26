@@ -103,6 +103,32 @@ fn mcp_discovers_starts_reads_and_stops_a_run() {
     assert!(data["commands"].as_array().unwrap().iter().any(|command| command["command"] == "make build"));
     fs::remove_file(dir.join("Taskfile.yml")).unwrap();
 
+    // The CLI and MCP resolve the same stable catalog ID and fingerprint.
+    let page = client.tool(41, "list_commands", json!({"query":"source:make build","limit":1}));
+    let definition = &page["structuredContent"]["commands"][0];
+    let definition_id = definition["id"].as_str().unwrap().to_string();
+    let fingerprint = definition["fingerprint"].as_str().unwrap().to_string();
+    let cli = Command::new(env!("CARGO_BIN_EXE_runui"))
+        .args(["commands", "-C", dir.to_str().unwrap(), "--query", "source:make build", "--json"])
+        .env("HOME", home.path())
+        .env("XDG_CONFIG_HOME", home.path().join("config"))
+        .env("XDG_STATE_HOME", home.path().join("state"))
+        .output()
+        .unwrap();
+    assert!(cli.status.success());
+    let catalog: Value = serde_json::from_slice(&cli.stdout).unwrap();
+    assert_eq!(catalog["commands"][0]["id"], definition_id);
+    assert_eq!(catalog["commands"][0]["fingerprint"], fingerprint);
+    let conflict = client.tool(42, "start_run", json!({"id":definition_id,"command":"echo conflict"}));
+    assert_eq!(conflict["isError"], true);
+    fs::write(dir.join("Makefile"), "build: ## Build the app\n\techo changed\n").unwrap();
+    let stale = client.tool(43, "start_run", json!({"id":definition_id,"fingerprint":fingerprint}));
+    assert_eq!(stale["isError"], true);
+    let native = client.tool(44, "start_run", json!({"id":definition_id}));
+    assert_eq!(native["isError"], false, "{native}");
+    assert_eq!(native["structuredContent"]["definition_id"], definition_id);
+    assert_eq!(native["structuredContent"]["agent"], "test");
+
     let started = client.tool(5, "start_run", json!({"command": "echo MCP_READY; sleep 5", "name": "mcp test"}));
     assert_eq!(started["isError"], false, "{started}");
     assert_eq!(started["structuredContent"]["agent"], "test", "the run isn't the client's: {started}");

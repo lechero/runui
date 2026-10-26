@@ -8,6 +8,7 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
+runui-catalog.workspace = true
 runui-core.workspace = true
 anyhow.workspace = true
 runui-tea.workspace = true

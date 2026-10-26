@@ -3,10 +3,11 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::os::unix::fs::MetadataExt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use runui_core::golang::{filepath, read_dir, read_file};
+use sha2::{Digest, Sha256};
 
 use crate::compose::{compose_default, compose_files};
 use crate::makefile::MAKEFILE_NAMES;
@@ -67,6 +68,7 @@ struct Stamp {
     device: u64,
     size: u64,
     mode: u32,
+    directory: bool,
 }
 
 fn stamp(path: &str) -> Option<Stamp> {
@@ -77,6 +79,7 @@ fn stamp(path: &str) -> Option<Stamp> {
         device: m.dev(),
         size: m.len(),
         mode: m.mode(),
+        directory: m.is_dir(),
     })
 }
 
@@ -90,6 +93,7 @@ pub(crate) struct Scan {
     contents: HashMap<String, Arc<[u8]>>,
     pub(crate) diagnostics: Vec<Diagnostic>,
     expansions: HashMap<Source, usize>,
+    current_dependencies: Option<HashSet<String>>,
 }
 
 impl Scan {
@@ -101,12 +105,44 @@ impl Scan {
             contents: HashMap::new(),
             diagnostics: Vec::new(),
             expansions: HashMap::new(),
+            current_dependencies: None,
         }
     }
 
     pub(crate) fn watch(&mut self, path: &str) {
         let path = filepath::clean(path);
+        if let Some(current) = &mut self.current_dependencies {
+            current.insert(path.clone());
+        }
         self.dependencies.entry(path.clone()).or_insert_with(|| stamp(&path));
+    }
+
+    fn begin_definition(&mut self) {
+        self.current_dependencies = Some(HashSet::new());
+    }
+
+    fn definition_fingerprint(&mut self) -> String {
+        let mut paths: Vec<_> = self.current_dependencies.take().unwrap_or_default().into_iter().collect();
+        paths.sort();
+        let mut hash = Sha256::new();
+        for path in paths {
+            let canonical = canonical_path(&path);
+            hash.update((canonical.len() as u64).to_be_bytes());
+            hash.update(canonical.as_bytes());
+            if let Some(data) = self.contents.get(&path) {
+                hash.update(Sha256::digest(data));
+            } else if self.dependencies.get(&path).and_then(|stamp| stamp.as_ref()).is_some_and(|stamp| stamp.directory)
+            {
+                // Directory entries trigger discovery refresh, but unrelated
+                // build output does not change an existing command definition.
+                hash.update(b"directory");
+            } else {
+                // Consulted lock/wrapper paths and missing include candidates
+                // affect resolution even when no parser reads their contents.
+                hash.update(format!("{:?}", self.dependencies.get(&path)));
+            }
+        }
+        hash.finalize().iter().map(|byte| format!("{byte:02x}")).collect()
     }
 
     pub(crate) fn problem(&mut self, source: Option<Source>, path: &str, message: impl Into<String>) {
@@ -169,6 +205,7 @@ pub fn discover(dir: &str, stop: &str) -> Discovery {
             if !scan.can_read(&path) {
                 continue;
             }
+            scan.begin_definition();
             let (commands, err) = match source {
                 Source::Taskfile => {
                     let (commands, more, err) = crate::taskfile::read_tracked(&path, &mut scan);
@@ -188,6 +225,7 @@ pub fn discover(dir: &str, stop: &str) -> Discovery {
                 label,
                 commands,
                 err: err.map(|err| err.to_string()),
+                fingerprint: scan.definition_fingerprint(),
             });
         }
     }
@@ -197,10 +235,31 @@ pub fn discover(dir: &str, stop: &str) -> Discovery {
 
 /// identity detects include cycles even through a symbolic link.
 pub(crate) fn identity(path: &str) -> String {
-    fs::canonicalize(path)
-        .ok()
-        .and_then(|p| p.to_str().map(str::to_string))
-        .unwrap_or_else(|| filepath::abs(path).unwrap_or_else(|_| filepath::clean(path)))
+    canonical_path(path)
+}
+
+/// canonical_path resolves existing ancestors too, so a missing candidate
+/// reached through a symlink has the same identity when it appears later.
+pub fn canonical_path(path: &str) -> String {
+    let absolute = filepath::abs(path).unwrap_or_else(|_| filepath::clean(path));
+    let mut candidate = PathBuf::from(&absolute);
+    let mut missing = Vec::new();
+    loop {
+        if let Ok(mut physical) = fs::canonicalize(&candidate) {
+            for component in missing.into_iter().rev() {
+                physical.push(component);
+            }
+            return physical.to_string_lossy().into_owned();
+        }
+        let Some(component) = candidate.file_name().map(|name| name.to_os_string()) else {
+            break;
+        };
+        missing.push(component);
+        if !candidate.pop() {
+            break;
+        }
+    }
+    absolute
 }
 
 struct Folder {
