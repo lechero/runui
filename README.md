@@ -66,7 +66,7 @@ Use `tab` / `shift+tab` between panels and `[` / `]` between a panel's tabs. Pre
 
 ![Root scripts and apps/web scripts in the Project panel](docs/assets/scripts.png)
 
-Press `m` to star a command, or `a` to save your own named shell command. Runui notices edits to files it reads; `r` rescans, including newly added nested files. Search across every source or registered project is [planned](docs/command-discovery-plan.md); today's `/` filter applies to the current tab.
+Press `m` to star a command, or `a` to save your own named shell command. Runui notices edits to files it reads; `r` rescans, including newly added nested files. A shared palette, workspace and registered-project search, Composer scripts, Cargo commands, and opt-in shell recall are [planned](docs/command-discovery-plan.md); today's `/` filter applies to the current tab.
 
 ## Run now, return later
 
