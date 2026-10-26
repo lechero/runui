@@ -25,8 +25,10 @@ use runui_tea::tea::{
     self, Cmd, KeyPressMsg, Mouse, MouseButton, MouseClickMsg, MouseMode, MouseWheelMsg, Msg, PasteMsg, WindowSizeMsg,
 };
 
+mod palette;
 mod rows;
 mod styles;
+mod terminal;
 mod view;
 
 use rows::{Item, Kind, View};
@@ -35,6 +37,18 @@ use styles::{KeyMap, S_ACCENT, S_TITLE, new_key_map};
 /// Runner starts, finds and stops the runs: a runs::Store, or a fake in
 /// tests.
 pub trait Runner: Send + Sync {
+    fn usage_store(&self) -> Option<runui_catalog::usage::Store> {
+        None
+    }
+    fn execution_shell(&self) -> Vec<String> {
+        vec!["/bin/sh".into(), "-c".into()]
+    }
+    fn start_with_shell(&self, dir: &str, name: &str, command: &str, shell: &[String]) -> (Run, Option<anyhow::Error>) {
+        if !shell.is_empty() && shell != self.execution_shell() {
+            return (Run::default(), Some(anyhow::anyhow!("this runner cannot replay a different shell")));
+        }
+        self.start(dir, name, command)
+    }
     fn start(&self, dir: &str, name: &str, command: &str) -> (Run, Option<anyhow::Error>);
     fn list(&self) -> anyhow::Result<Vec<Run>>;
     fn stop(&self, r: &Run) -> anyhow::Result<()>;
@@ -44,6 +58,19 @@ pub trait Runner: Send + Sync {
 }
 
 impl Runner for runs::Store {
+    fn usage_store(&self) -> Option<runui_catalog::usage::Store> {
+        Some(runui_catalog::usage::Store::for_runs(&self.root))
+    }
+    fn execution_shell(&self) -> Vec<String> {
+        if self.shell.is_empty() { vec!["/bin/sh".into(), "-c".into()] } else { self.shell.clone() }
+    }
+    fn start_with_shell(&self, dir: &str, name: &str, command: &str, shell: &[String]) -> (Run, Option<anyhow::Error>) {
+        let mut store = self.clone();
+        if !shell.is_empty() {
+            store.shell = shell.to_vec();
+        }
+        store.start(dir, name, command)
+    }
     fn start(&self, dir: &str, name: &str, command: &str) -> (Run, Option<anyhow::Error>) {
         runs::Store::start(self, dir, name, command)
     }
@@ -162,6 +189,8 @@ struct App {
     discovery_generation: u64,
     discovery_busy: bool,
     discovery_queued: bool,
+    palette: Option<palette::Palette>,
+    palette_epoch: u64,
     runs: Vec<Run>,
     stopping: HashSet<String>,
     out: Option<Output>,
@@ -200,7 +229,10 @@ struct RunsMsg {
 struct StartedMsg {
     run: Run,
     err: Option<String>,
+    warning: Option<String>,
 }
+
+struct HandoffMsg(Option<String>);
 
 struct StoppedMsg {
     run: Run,
@@ -254,6 +286,8 @@ impl Model {
             discovery_generation: 0,
             discovery_busy: false,
             discovery_queued: false,
+            palette: None,
+            palette_epoch: 0,
             runs: Vec::new(),
             stopping: HashSet::new(),
             out: None,
@@ -324,7 +358,14 @@ impl App {
     /// list_runs reads the runs again, away from the interface.
     fn list_runs(&self) -> Cmd {
         let runner = self.cfg.runs.clone();
-        tea::cmd(move || runner.list().ok().map(|list| tea::msg(RunsMsg { list })))
+        tea::cmd(move || {
+            runner.list().ok().map(|list| {
+                if let Some(store) = runner.usage_store() {
+                    let _ = store.reconcile(&list);
+                }
+                tea::msg(RunsMsg { list })
+            })
+        })
     }
 
     fn update(&mut self, msg: Msg) -> Cmd {
@@ -345,6 +386,26 @@ impl App {
             self.read_output();
             return tea::batch(cmds);
         }
+        let msg = match msg.downcast::<palette::Loaded>() {
+            Ok(message) => return self.palette_loaded(*message),
+            Err(msg) => msg,
+        };
+        let msg = match msg.downcast::<palette::Launched>() {
+            Ok(message) => return self.palette_launched(*message),
+            Err(msg) => msg,
+        };
+        let msg = match msg.downcast::<HandoffMsg>() {
+            Ok(message) => {
+                let (note, bad) = message.0.map_or(("opened in a terminal".into(), false), |error| (error, true));
+                if let Some(palette) = &mut self.palette {
+                    palette.notify(&note, bad);
+                } else {
+                    self.say(&note, bad);
+                }
+                return None;
+            }
+            Err(msg) => msg,
+        };
         let msg = match msg.downcast::<DiscoveryMsg>() {
             Ok(msg) => {
                 if msg.generation != self.discovery_generation {
@@ -361,14 +422,14 @@ impl App {
                 if msg.manual {
                     self.say("read the project's files again", false);
                 }
-                return None;
+                return self.refresh_palette();
             }
             Err(msg) => msg,
         };
         let msg = match msg.downcast::<RunsMsg>() {
             Ok(m) => {
                 self.set_runs(m.list);
-                return None;
+                return self.refresh_palette();
             }
             Err(msg) => msg,
         };
@@ -378,7 +439,11 @@ impl App {
                     self.say(&err, true);
                     return self.list_runs();
                 }
-                self.say(&format!("started {}", m.run.command), false);
+                if let Some(warning) = m.warning {
+                    self.say(&format!("started {}; usage history: {warning}", m.run.command), true);
+                } else {
+                    self.say(&format!("started {}", m.run.command), false);
+                }
                 let from_log = self.cur == PANEL_LOG;
                 let key = format!("run {}", m.run.id);
                 let tab = if self.here(&m.run) { 0 } else { RUNS_EVERYWHERE };
@@ -408,12 +473,18 @@ impl App {
         if let Some(k) = msg.downcast_ref::<KeyPressMsg>() {
             return self.key(k);
         }
+        if self.palette.is_some() && (msg.is::<MouseClickMsg>() || msg.is::<MouseWheelMsg>()) {
+            return None;
+        }
         if let Some(m) = msg.downcast_ref::<MouseClickMsg>() {
             return self.click(m.mouse());
         }
         if let Some(m) = msg.downcast_ref::<MouseWheelMsg>() {
             self.wheel(m.mouse());
             return None;
+        }
+        if msg.is::<PasteMsg>() && self.palette.is_some() {
+            return self.palette_input(&msg);
         }
         if msg.is::<PasteMsg>()
             && let Some(f) = self.form.as_mut()
@@ -550,10 +621,7 @@ impl App {
     /// rel_of is a folder from the project's, with slashes: "" for the
     /// project's own, and None for one that isn't in it.
     fn rel_of(&self, dir: &str) -> Option<String> {
-        let rel = filepath::rel(&self.cfg.dir, dir)?;
-        if rel == ".." || rel.starts_with("../") {
-            return None;
-        }
+        let rel = runui_catalog::relative_within(&self.cfg.dir, dir)?;
         if rel == "." {
             return Some(String::new());
         }
@@ -678,7 +746,7 @@ impl App {
     /// the last to end.
     fn last_run(&self, dir: &str, command: &str) -> Option<&Run> {
         // the ones going first, then the newest
-        self.runs.iter().find(|r| r.dir == dir && r.command == command)
+        self.runs.iter().find(|r| r.command == command && runui_catalog::same_directory(&r.dir, dir))
     }
 
     /// pane_run is the run the pane shows: the row's, or the latest run of
@@ -735,6 +803,12 @@ impl App {
         let s = msg.string();
         if s == "ctrl+c" {
             return tea::quit();
+        }
+        if self.palette.is_some() {
+            return self.palette_key(msg);
+        }
+        if s == "ctrl+p" && self.form.is_none() && self.confirm.is_none() {
+            return self.open_palette();
         }
         if self.form.is_some() {
             return self.form_key(msg);
@@ -964,7 +1038,12 @@ impl App {
         let (dir, name, command) = (dir.to_string(), name.to_string(), command.to_string());
         tea::cmd_msg(move || {
             let (run, err) = runner.start(&dir, &name, &command);
-            StartedMsg { run, err: err.map(|e| e.to_string()) }
+            let warning = if !run.id.is_empty() {
+                runner.usage_store().and_then(|store| store.record(&run, None).err().map(|error| error.to_string()))
+            } else {
+                None
+            };
+            StartedMsg { run, err: err.map(|e| e.to_string()), warning }
         })
     }
 
@@ -1000,24 +1079,33 @@ impl App {
         let (runner, wait) = (self.cfg.runs.clone(), runs::stop_grace() + Duration::from_secs(5));
         tea::cmd_msg(move || {
             if let Err(err) = runner.stop(&r) {
-                return StartedMsg { run: Run::default(), err: Some(err.to_string()) };
+                return StartedMsg { run: Run::default(), err: Some(err.to_string()), warning: None };
             }
             let deadline = Instant::now() + wait;
             loop {
                 let list = match runner.list() {
                     Ok(list) => list,
-                    Err(err) => return StartedMsg { run: Run::default(), err: Some(err.to_string()) },
+                    Err(err) => return StartedMsg { run: Run::default(), err: Some(err.to_string()), warning: None },
                 };
                 if !list.iter().any(|x| x.id == r.id && x.live()) {
                     break;
                 }
                 if Instant::now() > deadline {
-                    return StartedMsg { run: Run::default(), err: Some(format!("{} didn't stop", r.command)) };
+                    return StartedMsg {
+                        run: Run::default(),
+                        err: Some(format!("{} didn't stop", r.command)),
+                        warning: None,
+                    };
                 }
                 std::thread::sleep(Duration::from_millis(100));
             }
             let (run, err) = runner.start(&it.dir, &it.name, &it.command);
-            StartedMsg { run, err: err.map(|e| e.to_string()) }
+            let warning = if !run.id.is_empty() {
+                runner.usage_store().and_then(|store| store.record(&run, None).err().map(|error| error.to_string()))
+            } else {
+                None
+            };
+            StartedMsg { run, err: err.map(|e| e.to_string()), warning }
         })
     }
 

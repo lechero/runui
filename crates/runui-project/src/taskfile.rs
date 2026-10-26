@@ -101,6 +101,12 @@ fn read_contents(
         commands.push(Command {
             source: Source::Taskfile,
             run: format!("task {}", quote(&full)),
+            argv: vec!["task".into(), full.clone()],
+            args_separator: true,
+            defining_file: path.into(),
+            defining_line: usize::try_from(doc.get(value).line).ok().filter(|line| *line > 0),
+            variant: String::new(),
+            generated: false,
             name: full,
             desc: desc(&task),
         });

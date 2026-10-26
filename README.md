@@ -66,7 +66,11 @@ Use `tab` / `shift+tab` between panels and `[` / `]` between a panel's tabs. Pre
 
 ![Root scripts and apps/web scripts in the Project panel](docs/assets/scripts.png)
 
-Press `m` to star a command, or `a` to save your own named shell command. Runui notices edits to files it reads; `r` rescans, including newly added nested files. A shared palette, workspace and registered-project search, Composer scripts, Cargo commands, and opt-in shell recall are [planned](docs/command-discovery-plan.md); today's `/` filter applies to the current tab.
+Press **`ctrl+p`** to search all sources and favorites together. Try `test`, `source:npm test`, or `dir:apps/web`. The preview shows the exact command, working directory, source location, and tool availability. `/` still filters the current panel tab.
+
+In the palette, `tab` switches to **Recent invocations**, which retains exact commands after their output is pruned. `enter` runs the selection or focuses its existing live run; `alt+r` starts another. `alt+u` selects a recent invocation's current definition, keeping repeat and updated defaults separate. `esc` restores your panel filter and selection. Use `ctrl+v` for scrollable details, `alt+m` to star, `ctrl+y` to copy, `ctrl+o` to open the source, or `ctrl+t` to open a terminal. Terminal actions use tmux or a configured `RUNUI_TERMINAL` launcher. [Catalog and CLI reference](docs/command-catalog.md).
+
+Press `m` in a panel to star a command, or `a` to save your own named shell command. Runui notices edits to files it reads; `r` rescans, including newly added nested files. The palette currently searches the selected project. Workspace/registered-project scopes, Composer, Cargo, shell recall, and input presets remain in the [integration plan](docs/command-discovery-plan.md).
 
 Background checks also cover included Taskfiles, newly added nested command files, parent lockfiles, and Maven wrappers. Shared Taskfiles contribute every include namespace. Incomplete discovery reports skipped includes, unreadable folders, and scan limits (three levels, 2,000 folders, 150 definition files), while keeping usable commands.
 
@@ -117,8 +121,8 @@ Use your installed paths (`command -v runui`), including `/home/you/…` on Linu
 
 | Tool | Inputs | Result |
 | --- | --- | --- |
-| `list_commands` | `{}` | Discovered commands and favorites, exact shell commands and directories, and file-reading errors. |
-| `start_run` | `command`; optional `directory`, `name` | A supervised run and its ID. Directories may be absolute or relative to the selected project. |
+| `list_commands` | Optional `query`, `limit`, `offset` | A catalog page (200 by default, up to 500), with IDs, fingerprints, provenance, exact commands/directories, diagnostics, and `next_offset`. |
+| `start_run` | Either `id` with optional `fingerprint`, `inputs`; or raw `command` with optional `directory`. Optional `name` in either form. | A supervised run and its ID. Catalog launches revalidate the definition; literal `inputs.args` and supported `inputs.variables` are prepared before launch. |
 | `list_runs` | Optional `directory` | Runs from every folder, newest first; the optional filter matches one exact working directory. |
 | `get_run` | `id` | State, timestamps, exit code, agent, output path, and other metadata. |
 | `read_output` | `id`; optional `lines` | Latest plain-text tail and state: 100 lines by default, up to 500 lines and 64 KiB. Poll again to follow output. |
@@ -162,6 +166,7 @@ If your shell and tmux disagree, use the absolute path from `command -v runui` i
 | `[` / `]` | Switch the current panel's tabs. |
 | `j` / `k`, `g` / `G` | Move through rows. |
 | `/`, `esc` | Filter the current tab; clear the filter. |
+| `ctrl+p` | Open the shared command palette; `tab` switches Commands / Recent. |
 | `enter` | Run a command; on a run, focus its output. |
 | `s` / `R` | Stop or restart a run. |
 | `m` / `a` / `e` / `D` | Star, add, edit, or remove; `D` also forgets an ended run. |
@@ -176,8 +181,11 @@ If your shell and tmux disagree, use the absolute path from `command -v runui` i
 | --- | --- | --- |
 | Favorites | `~/.config/runui/favorites.json` | `$XDG_CONFIG_HOME/runui/favorites.json` |
 | Runs and output | `~/.local/state/runui/runs` | `$XDG_STATE_HOME/runui/runs` |
+| Usage recall | `~/.local/state/runui/runs/catalog-v1.json` | Under the selected runs directory. |
 
 Each run has `run.json`, `output.log`, a supervisor lock, and a `status.seen` marker once its result has been reviewed. Starting a new run keeps the 40 most recent previous ended runs across folders, including repeated commands. Output remains until the run is forgotten or pruned.
+
+Usage recall is separate: up to 1,000 detailed invocations for 180 days and 2,000 aggregate keys. Launches are deduplicated by run ID across TUI, CLI, and MCP. Reviewing results does not increase usage or acknowledge hidden results while the palette is open. The sidecar uses an atomic write, a separate writer lock, and file mode `0600`; malformed state is backed up before repair, and unknown schema versions are left intact. Personal shell history is never read by ordinary search.
 
 Commands run through `sh -c`, using `mise exec` when available. Stopping sends SIGTERM to the process group, then SIGKILL after five seconds if necessary.
 

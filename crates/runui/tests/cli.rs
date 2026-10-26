@@ -276,3 +276,104 @@ fn list_reports_partial_discovery_without_losing_other_commands() {
     assert!(output.contains("task check"));
     assert!(output.contains("Discovery incomplete: Taskfile.yml: include remote"));
 }
+
+#[test]
+fn catalog_search_inspect_launch_and_recall_share_identity_and_usage() {
+    use std::time::{Duration, Instant};
+    let s = sandbox();
+    fs::write(filepath::join(&[&s.dir, "Makefile"]), "report:\n\t@printf 'CATALOG_READY\\n'\n").unwrap();
+    let (code, out, error) = s.run(&["commands", "-C", &s.dir, "--query", "source:make report", "--json"]);
+    assert_eq!(code, EXIT_OK, "{error}");
+    let data: serde_json::Value = serde_json::from_str(&out).unwrap();
+    let entry = &data["commands"][0];
+    assert_eq!(data["schema_version"], 1);
+    assert_eq!(entry["name"], "report");
+    let id = entry["id"].as_str().unwrap();
+    let fingerprint = entry["fingerprint"].as_str().unwrap();
+    let (code, out, error) = s.run(&["inspect", "-C", &s.dir, "--json", id]);
+    assert_eq!(code, EXIT_OK, "{error}");
+    assert_eq!(serde_json::from_str::<serde_json::Value>(&out).unwrap()["fingerprint"], fingerprint);
+    fs::write(filepath::join(&[&s.dir, "Makefile"]), "report:\n\t@printf 'CATALOG_UPDATED\\n'\n").unwrap();
+    let (code, _, error) = s.run(&["run", "-C", &s.dir, "--json", "--fingerprint", fingerprint, id]);
+    assert_eq!(code, EXIT_FAILURE);
+    assert!(error.contains("definition changed"));
+    let (code, out, error) = s.run(&["run", "-C", &s.dir, "--json", id]);
+    assert_eq!(code, EXIT_OK, "{error}");
+    let started: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(started["definition_id"], id);
+    let output = started["output_file"].as_str().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        if fs::read_to_string(output).unwrap_or_default().contains("CATALOG_UPDATED") {
+            break;
+        }
+        assert!(Instant::now() < deadline, "no output: {started}");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let (code, out, error) = s.run(&["find", "-C", &s.dir, "--mode", "recent", "--json", "report"]);
+    assert_eq!(code, EXIT_OK, "{error}");
+    let recent: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(recent["commands"][0]["run_id"], started["id"]);
+    let (code, out, error) = s.run(&["commands", "-C", &s.dir, "--json", "source:make report"]);
+    assert_eq!(code, EXIT_OK, "{error}");
+    assert_eq!(serde_json::from_str::<serde_json::Value>(&out).unwrap()["commands"][0]["launches"], 1);
+}
+
+#[test]
+fn catalog_pages_are_bounded_and_text_output_does_not_emit_terminal_controls() {
+    let s = sandbox();
+    let (code, out, error) = s.run(&["commands", "-C", &s.dir, "--limit", "1", "--json"]);
+    assert_eq!(code, EXIT_OK, "{error}");
+    let page: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(page["commands"].as_array().unwrap().len(), 1);
+    assert_eq!(page["next_offset"], 1);
+    fs::write(filepath::join(&[&s.dir, "package.json"]), "{\"scripts\":{\"bad\\u001b[2J\":\"true\"}}").unwrap();
+    let (code, out, error) = s.run(&["commands", "-C", &s.dir]);
+    assert_eq!(code, EXIT_OK, "{error}");
+    assert!(!out.contains('\u{1b}'));
+    assert!(out.contains("bad"));
+}
+
+#[test]
+fn catalog_rejects_options_that_would_be_silently_ignored() {
+    let s = sandbox();
+    for args in [
+        vec!["run", "--query", "test", "missing-id"],
+        vec!["run", "--mode", "recent", "missing-id"],
+        vec!["inspect", "--fingerprint", "old", "missing-id"],
+        vec!["commands", "--"],
+        vec!["find", "--query", "one", "two"],
+        vec!["commands", "--var", "NAME=value"],
+    ] {
+        let (code, _, error) = s.run(&args);
+        assert_eq!(code, EXIT_USAGE, "{args:?}: {error}");
+    }
+    assert!(!std::path::Path::new(&s.root).join("state/runui/runs/catalog-v1.json").exists());
+}
+
+#[test]
+fn catalog_raw_favorite_arguments_remain_literal() {
+    use std::time::{Duration, Instant};
+    let s = sandbox();
+    Store::open(&s.favorites())
+        .unwrap()
+        .add(
+            &s.dir,
+            Favorite { name: "literal".into(), command: "printf '%s\\n' \"$1\"".into(), ..Favorite::default() },
+        )
+        .unwrap();
+    let (_, out, _) = s.run(&["commands", "-C", &s.dir, "--query", "source:shell literal", "--json"]);
+    let page: serde_json::Value = serde_json::from_str(&out).unwrap();
+    let id = page["commands"][0]["id"].as_str().unwrap();
+    let argument = "spaces; touch NEVER $(echo expanded) 'quoted'";
+    let (code, out, error) = s.run(&["run", "-C", &s.dir, "--json", id, "--", argument]);
+    assert_eq!(code, EXIT_OK, "{error}");
+    let started: serde_json::Value = serde_json::from_str(&out).unwrap();
+    let output = started["output_file"].as_str().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !fs::read_to_string(output).unwrap_or_default().contains(argument) {
+        assert!(Instant::now() < deadline, "literal output missing: {started}");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert!(!std::path::Path::new(&s.dir).join("NEVER").exists());
+}

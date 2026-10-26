@@ -950,3 +950,116 @@ fn manual_refresh_coalesces_and_discards_the_superseded_result() {
     assert!(!h.m.a.discovery_busy);
     assert!(!h.m.a.discovery_queued);
 }
+
+#[test]
+fn palette_searches_sources_without_mutating_the_panel_filter_or_selection() {
+    let world = new_world();
+    let mut h = open(&world);
+    h.keys(&["2", "/", "d", "e", "v", "enter"]);
+    let before = h.m.a.selected().unwrap().key();
+    h.keys(&["ctrl+p"]);
+    h.typed("source:make build");
+    let screen = h.screen();
+    assert!(screen.contains("Commands · Project"));
+    assert!(screen.contains("make build"));
+    assert!(screen.contains("cwd:"));
+    assert!(world.runs.list().unwrap().is_empty(), "search must never launch");
+    h.keys(&["esc"]);
+    assert_eq!(h.m.a.shown().filter, "dev");
+    assert_eq!(h.m.a.selected().unwrap().key(), before);
+}
+
+#[test]
+fn palette_revalidates_stale_definitions_then_launches_and_records_usage() {
+    let world = new_world();
+    let makefile = filepath::join(&[&world.dir, "Makefile"]);
+    fs::write(&makefile, "check: ## Before\n\t@printf 'BEFORE\\n'\n").unwrap();
+    let mut h = open(&world);
+    h.keys(&["ctrl+p"]);
+    h.typed("source:make check");
+    fs::write(&makefile, "check: ## After\n\t@printf 'AFTER\\n'\n").unwrap();
+    h.keys(&["enter"]);
+    assert!(h.m.a.palette.is_some());
+    assert!(h.screen().contains("definition changed"));
+    assert!(world.runs.list().unwrap().is_empty());
+    h.keys(&["enter"]);
+    h.wait_for("AFTER");
+    assert!(h.m.a.palette.is_none());
+    assert_eq!(h.m.a.cur, PANEL_RUNS);
+    assert_eq!(h.m.a.panels[PANEL_RUNS].cur, 0, "a physical path alias must still appear Here");
+    let store = runui_catalog::usage::Store::for_runs(&world.runs.root);
+    assert_eq!(store.load().unwrap().recent.len(), 1);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while world.runs.list().unwrap().iter().any(Run::live) {
+        assert!(Instant::now() < deadline);
+        h.refresh();
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    h.refresh();
+    h.keys(&["ctrl+p", "tab"]);
+    assert!(h.screen().contains("Recent invocations"));
+    assert!(h.screen().contains("make check"));
+    h.keys(&["enter"]);
+    h.wait_for("AFTER");
+    assert_eq!(store.load().unwrap().recent.len(), 2);
+    h.keys(&["ctrl+p"]);
+    h.typed("source:make check");
+    assert!(h.screen().contains("2 launches"));
+}
+
+#[test]
+fn a_palette_overlay_does_not_review_new_results_hidden_behind_it() {
+    let world = new_world();
+    let mut h = open(&world);
+    h.keys(&["4", "ctrl+p"]);
+    let (run, error) = world.runs.start(&world.dir, "hidden failure", "exit 7");
+    assert!(error.is_none());
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        h.refresh();
+        if !world.runs.get(&run.id).unwrap().live() {
+            break;
+        }
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    h.refresh();
+    let finished = world.runs.get(&run.id).unwrap();
+    assert!(world.runs.pending_result(&finished));
+    h.keys(&["esc"]);
+    assert!(!world.runs.pending_result(&finished));
+}
+
+#[test]
+fn palette_keeps_small_layouts_and_control_characters_safe() {
+    let world = new_world();
+    fs::write(filepath::join(&[&world.dir, "package.json"]), "{\"scripts\":{\"bad\\u001b[2J\":\"true\"}}").unwrap();
+    let mut h = open(&world);
+    h.keys(&["ctrl+p"]);
+    h.typed("bad");
+    for (width, height) in [(120, 36), (60, 16), (30, 10)] {
+        h.send(tea::msg(WindowSizeMsg { width, height }));
+        for line in h.screen().lines() {
+            assert!(ansi::string_width(line) <= width, "{width}: {line:?}");
+        }
+        assert!(h.screen().lines().count() <= height as usize);
+        assert!(h.screen().contains("bad"));
+    }
+    h.keys(&["ctrl+v"]);
+    assert!(h.screen().contains("bad"));
+}
+
+#[test]
+fn favorites_saved_from_the_palette_keep_the_existing_folder_key() {
+    let world = new_world();
+    let mut h = open(&world);
+    h.keys(&["ctrl+p"]);
+    h.typed("source:make build");
+    h.keys(&["alt+m"]);
+    let favorites = world.favs_now().for_dir(&world.dir);
+    assert_eq!(favorites.len(), 1);
+    assert_eq!(favorites[0].command, "make build");
+    assert!(favorites[0].dir.is_empty());
+    h.keys(&["esc"]);
+    assert!(h.m.a.panels[PANEL_FAVORITES].views[0].all.iter().any(|item| item.command == "make build"));
+}

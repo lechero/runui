@@ -24,7 +24,7 @@ mod xml;
 mod yaml;
 
 pub use compose::read_compose;
-pub use discovery::{Diagnostic, Discovery, discover};
+pub use discovery::{Diagnostic, Discovery, canonical_path, discover};
 pub use makefile::read_makefile;
 pub use maven::read_pom;
 pub use npm::read_package_json;
@@ -95,6 +95,16 @@ pub struct Command {
     pub run: String,
     /// what it says it does: a task's desc, a script's own line, a target's ## comment
     pub desc: String,
+    /// Tool invocation as literal arguments, including the executable.
+    pub argv: Vec<String>,
+    /// Arguments after the invocation need the runner's -- separator.
+    pub args_separator: bool,
+    /// The included file can differ from the entry file used to invoke it.
+    pub defining_file: String,
+    pub defining_line: Option<usize>,
+    /// A provider's stable action variant, separate from its display name.
+    pub variant: String,
+    pub generated: bool,
 }
 
 /// File is one of the project's files and the commands in it.
@@ -113,6 +123,8 @@ pub struct File {
     pub commands: Vec<Command>,
     /// why it couldn't be read; the project's other files still are
     pub err: Option<String>,
+    /// Execution dependencies captured during parsing, independent of row identity.
+    pub fingerprint: String,
 }
 
 impl File {

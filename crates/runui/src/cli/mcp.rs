@@ -5,7 +5,6 @@ use std::io::{BufRead, Write};
 use std::path::{Component, Path};
 
 use anyhow::{Context, Result, anyhow};
-use runui_project as project;
 use runui_runs::{Output, Run, State};
 use runui_tea::ansi;
 use serde::Deserialize;
@@ -142,18 +141,23 @@ fn tools() -> Vec<Value> {
     vec![
         json!({
             "name": "list_commands",
-            "description": "List the selected project's discovered tasks, scripts, targets, services, builds, and saved favorites. Returns exact shell commands and working directories for start_run.",
-            "inputSchema": {"type": "object", "properties": {}, "additionalProperties": false},
+            "description": "Search a bounded page of the shared command catalog and saved favorites. IDs, fingerprints, provenance and exact working directories can be used with start_run. Personal shell history is never included.",
+            "inputSchema": {"type": "object", "properties": {
+                "query": {"type":"string"}, "limit":{"type":"integer","minimum":1,"maximum":500,"default":200}, "offset":{"type":"integer","minimum":0,"default":0}
+            }, "additionalProperties": false},
             "annotations": {"readOnlyHint": true}
         }),
         json!({
             "name": "start_run",
             "description": "Start a shell command under runui's persistent supervisor. It keeps running after this MCP connection closes, and runui lists it in its Agents tab under this client's name. The command is passed to sh -c (through mise when available).",
             "inputSchema": {"type": "object", "properties": {
-                "command": {"type": "string", "description": "The exact shell command to run."},
+                "command": {"type": "string", "description": "The exact raw shell command; mutually exclusive with id."},
+                "id": {"type":"string","description":"Command catalog ID from list_commands; resolved again before launch."},
+                "fingerprint": {"type":"string","description":"Expected definition fingerprint; stale selections fail before launch."},
+                "inputs": {"type":"object","properties":{"args":{"type":"array","items":{"type":"string"}},"variables":{"type":"object","additionalProperties":{"type":"string"}}},"additionalProperties":false},
                 "directory": {"type": "string", "description": "Working directory, absolute or relative to the selected project; defaults to the project directory."},
                 "name": {"type": "string", "description": "Optional label shown in runui."}
-            }, "required": ["command"], "additionalProperties": false}
+            }, "oneOf":[{"required":["command"],"not":{"required":["id"]}},{"required":["id"],"not":{"required":["command"]}}], "additionalProperties": false}
         }),
         json!({
             "name": "list_runs",
@@ -190,7 +194,14 @@ fn tools() -> Vec<Value> {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct StartArgs {
-    command: String,
+    #[serde(default)]
+    command: Option<String>,
+    #[serde(default)]
+    id: Option<String>,
+    #[serde(default)]
+    fingerprint: Option<String>,
+    #[serde(default)]
+    inputs: runui_catalog::Inputs,
     #[serde(default)]
     directory: Option<String>,
     #[serde(default)]
@@ -225,8 +236,8 @@ fn default_lines() -> usize {
 fn call(w: &Workspace, agent: &str, name: &str, args: Value) -> Result<Value> {
     match name {
         "list_commands" => {
-            let _: EmptyArgs = serde_json::from_value(args)?;
-            list_commands(w)
+            let args: CatalogArgs = serde_json::from_value(args)?;
+            list_commands(w, args)
         }
         "start_run" => start_run(w, agent, serde_json::from_value(args)?),
         "list_runs" => list_runs(w, serde_json::from_value(args)?),
@@ -246,58 +257,105 @@ fn call(w: &Workspace, agent: &str, name: &str, args: Value) -> Result<Value> {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Default, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct EmptyArgs {}
+struct CatalogArgs {
+    #[serde(default)]
+    query: String,
+    #[serde(default)]
+    limit: Option<usize>,
+    #[serde(default)]
+    offset: usize,
+}
 
-fn list_commands(w: &Workspace) -> Result<Value> {
-    let mut commands = Vec::new();
-    for favorite in w.favorites()?.for_dir(&w.dir) {
-        commands.push(json!({
-            "kind": "favorite",
-            "source": favorite.source,
-            "name": favorite.label(),
-            "command": favorite.command,
-            "directory": Path::new(&w.dir).join(&favorite.dir).to_string_lossy(),
-        }));
+fn list_commands(w: &Workspace, args: CatalogArgs) -> Result<Value> {
+    let limit = args.limit.unwrap_or(200);
+    if !(1..=500).contains(&limit) {
+        return Err(anyhow!("limit must be between 1 and 500"));
     }
-    let mut errors = Vec::new();
-    let discovery = project::discover(&w.dir, &w.repo);
-    let complete = discovery.complete();
-    let diagnostics: Vec<_> = discovery.diagnostics.iter().map(|problem| json!({
-        "file": problem.path, "source": problem.source.map(|source| source.as_str()), "message": problem.message,
-    })).collect();
-    for file in discovery.files {
-        if let Some(error) = file.err {
-            errors.push(json!({"file": file.path, "error": error}));
-        }
-        for command in file.commands {
-            commands.push(json!({
-                "kind": "project",
-                "source": command.source.as_str(),
-                "name": command.name,
-                "command": command.run,
-                "description": command.desc,
-                "directory": file.dir,
-                "file": file.path,
-            }));
-        }
-    }
+    let snapshot = w.catalog()?;
+    let mut query = runui_catalog::Query::parse(&args.query).map_err(|error| anyhow!(error))?;
+    query.kinds = vec![runui_catalog::Kind::Command, runui_catalog::Kind::Favorite];
+    query.limit = limit + 1;
+    query.offset = args.offset;
+    let hits = snapshot.search(&query);
+    let more = hits.len() > limit;
+    let commands: Vec<_> = hits
+        .iter()
+        .take(limit)
+        .map(|hit| {
+            let mut value = serde_json::to_value(hit.entry).expect("catalog entries are serializable");
+            value["catalog_kind"] = value["kind"].clone();
+            value["kind"] = json!(if hit.entry.kind == runui_catalog::Kind::Favorite { "favorite" } else { "project" });
+            if let Some(file) = &hit.entry.entry_file {
+                value["file"] = json!(file);
+            }
+            value
+        })
+        .collect();
+    let errors: Vec<_> = snapshot
+        .diagnostics
+        .iter()
+        .filter(|problem| problem.kind == "parse")
+        .map(|problem| json!({"file":problem.path,"error":problem.message}))
+        .collect();
+    let diagnostics: Vec<_> = snapshot
+        .diagnostics
+        .iter()
+        .filter(|problem| problem.kind != "parse")
+        .map(|problem| json!({"file":problem.path,"source":problem.source,"message":problem.message}))
+        .collect();
     Ok(
-        json!({"project_directory": w.dir, "commands": commands, "errors": errors, "complete": complete, "diagnostics": diagnostics}),
+        json!({"schema_version":1,"project_directory":w.dir,"commands":commands,"errors":errors,"complete":snapshot.diagnostics.is_empty(),"diagnostics":diagnostics,"next_offset":if more {Some(args.offset+limit)} else {None}}),
     )
 }
 
 fn start_run(w: &Workspace, agent: &str, args: StartArgs) -> Result<Value> {
-    if args.command.trim().is_empty() {
-        return Err(anyhow!("command must not be empty"));
-    }
-    let dir = directory(w, args.directory.as_deref())?;
-    let (run, error) = w.runs()?.start_by(&dir, &args.name, &args.command, agent);
+    let mut store = w.runs()?;
+    let prepared = if let Some(id) = &args.id {
+        if args.command.is_some() || args.directory.is_some() {
+            return Err(anyhow!("id cannot be combined with command or directory"));
+        }
+        Some(w.catalog()?.prepare(id, args.fingerprint.as_deref(), &args.inputs)?)
+    } else {
+        if args.fingerprint.is_some() || args.inputs != runui_catalog::Inputs::default() {
+            return Err(anyhow!("fingerprint and inputs require a command id"));
+        }
+        None
+    };
+    let (dir, name, command) = if let Some(prepared) = &prepared {
+        if !prepared.shell.is_empty() {
+            store.shell = prepared.shell.clone();
+        }
+        (
+            prepared.directory.clone(),
+            if args.name.is_empty() { prepared.name.clone() } else { args.name },
+            prepared.command.clone(),
+        )
+    } else {
+        let command = args.command.ok_or_else(|| anyhow!("command or id is required"))?;
+        if command.trim().is_empty() {
+            return Err(anyhow!("command must not be empty"));
+        }
+        (directory(w, args.directory.as_deref())?, args.name, command)
+    };
+    let (run, error) = store.start_by(&dir, &name, &command, agent);
     if let Some(error) = error {
         return Err(error);
     }
-    Ok(run_data(&run))
+    let history_error = runui_catalog::usage::Store::for_runs(&store.root)
+        .record(&run, prepared.as_ref())
+        .err()
+        .map(|error| error.to_string());
+    let mut result = run_data(&run);
+    if let Some(prepared) = prepared {
+        result["definition_id"] = json!(prepared.id);
+        result["fingerprint"] = json!(prepared.fingerprint);
+    }
+    if let Some(error) = history_error {
+        result["history_error"] = json!(error);
+    }
+    Ok(result)
 }
 
 fn list_runs(w: &Workspace, args: ListArgs) -> Result<Value> {
@@ -306,7 +364,7 @@ fn list_runs(w: &Workspace, args: ListArgs) -> Result<Value> {
         .runs()?
         .list()?
         .iter()
-        .filter(|run| filter.as_ref().is_none_or(|dir| run.dir == *dir))
+        .filter(|run| filter.as_ref().is_none_or(|dir| runui_catalog::same_directory(&run.dir, dir)))
         .map(run_data)
         .collect::<Vec<_>>();
     Ok(json!({"runs": runs}))
@@ -360,7 +418,7 @@ fn directory(w: &Workspace, input: Option<&str>) -> Result<String> {
     path.to_str().map(str::to_string).ok_or_else(|| anyhow!("directory path isn't UTF-8"))
 }
 
-fn run_data(run: &Run) -> Value {
+pub(super) fn run_data(run: &Run) -> Value {
     json!({
         "id": run.id,
         "directory": run.dir,

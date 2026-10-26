@@ -603,3 +603,12 @@ fn root_finds_compose_and_maven() {
         assert_eq!(root(&filepath::join(&[&home, input]), &home), filepath::join(&[&home, want]), "root({input})");
     }
 }
+
+#[test]
+fn duplicate_script_keys_keep_the_final_value_in_one_native_operation() {
+    let (_temp, dir) = tempdir();
+    write(&dir, &[("package.json", r#"{"scripts":{"build":"first","test":"check","build":"last"}}"#)]);
+    let (commands, error) = read_package_json(&filepath::join(&[&dir, "package.json"]), &dir);
+    assert!(error.is_none());
+    check(&commands, &["build=npm run build (last)", "test=npm run test (check)"]);
+}

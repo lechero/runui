@@ -116,6 +116,12 @@ pub(crate) fn read_tracked(path: &str, scan: &mut crate::discovery::Scan) -> (Ve
                 name: name.to_string(),
                 run: format!("make {}", quote(name)),
                 desc: desc.clone(),
+                argv: vec!["make".into(), name.into()],
+                args_separator: false,
+                defining_file: path.into(),
+                defining_line: None,
+                variant: String::new(),
+                generated: false,
             });
         }
     }

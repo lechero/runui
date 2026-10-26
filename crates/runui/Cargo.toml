@@ -12,6 +12,7 @@ name = "runui"
 path = "src/main.rs"
 
 [dependencies]
+runui-catalog.workspace = true
 runui-core.workspace = true
 runui-tea.workspace = true
 runui-project.workspace = true

@@ -46,16 +46,33 @@ pub(crate) fn read_tracked(
     let dir = filepath::dir(path);
     let mvn = maven_command(&dir, stop, scan);
     let what = if pom.modules.is_empty() { "it" } else { "every module" };
-    let cmd = |goals: String, desc: String| Command {
-        source: Source::Maven,
-        run: format!("{mvn} {goals}"),
-        name: goals,
-        desc,
+    let cmd = |goals: String, arguments: Vec<String>, desc: String| {
+        let argv: Vec<_> = std::iter::once(mvn.clone()).chain(arguments).collect();
+        Command {
+            source: Source::Maven,
+            run: argv.iter().map(|argument| quote(argument)).collect::<Vec<_>>().join(" "),
+            argv,
+            args_separator: false,
+            defining_file: path.into(),
+            defining_line: None,
+            variant: String::new(),
+            generated: true,
+            name: goals,
+            desc,
+        }
     };
     let mut cmds = vec![
-        cmd("clean install".into(), format!("Build {what} and install it in ~/.m2")),
-        cmd("clean verify".into(), format!("Build {what} and run the tests, installing nothing")),
-        cmd("test".into(), "Run the unit tests".into()),
+        cmd(
+            "clean install".into(),
+            vec!["clean".into(), "install".into()],
+            format!("Build {what} and install it in ~/.m2"),
+        ),
+        cmd(
+            "clean verify".into(),
+            vec!["clean".into(), "verify".into()],
+            format!("Build {what} and run the tests, installing nothing"),
+        ),
+        cmd("test".into(), vec!["test".into()], "Run the unit tests".into()),
     ];
     let mut ids: Vec<String> = Vec::new();
     // the modules a profile is in, when it's theirs
@@ -83,7 +100,11 @@ pub(crate) fn read_tracked(
         {
             desc += &format!(" ({})", modules.join(", "));
         }
-        cmds.push(cmd(format!("clean install -P{}", quote(&id)), desc));
+        cmds.push(cmd(
+            format!("clean install -P{}", quote(&id)),
+            vec!["clean".into(), "install".into(), format!("-P{id}")],
+            desc,
+        ));
     }
     (cmds, None)
 }

@@ -47,6 +47,9 @@ impl App {
         if self.w == 0 {
             return String::new();
         }
+        if let Some(palette) = &mut self.palette {
+            return palette.draw(self.w, self.h);
+        }
         let lines = self.pane_lines();
         let pane = self.pane_box(&lines);
         self.geom = Geometry::default();
@@ -652,6 +655,7 @@ impl App {
                 (h(&k.tabs), tabs),
                 ("↑/k ↓/j g G".into(), "along its rows"),
                 (h(&k.filter), "filter its rows by what you type; esc clears it"),
+                ("ctrl+p".into(), "search the command catalog and recent invocations; esc returns"),
                 (
                     format!("{}, enter on a run", h(&k.focus_pane)),
                     "the output takes the keys, to scroll it; esc goes back",
@@ -740,7 +744,7 @@ impl App {
                 k.quit.clone(),
             ]);
         }
-        let short = match self.selected() {
+        let mut short = match self.selected() {
             None => vec![k.add.clone(), k.next_panel.clone(), k.panels.clone(), k.help.clone(), k.quit.clone()],
             Some(it) if it.kind == Kind::Run => vec![
                 bind("enter", "its output"),
@@ -775,6 +779,7 @@ impl App {
                 k.quit.clone(),
             ],
         };
+        short.insert(0, bind("ctrl+p", "commands"));
         KeyHelp::short(short)
     }
 

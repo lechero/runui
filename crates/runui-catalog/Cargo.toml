@@ -1,0 +1,24 @@
+[package]
+name = "runui-catalog"
+description = "Shared command identity, search, preparation and usage history"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+runui-core.workspace = true
+runui-project.workspace = true
+runui-favorites.workspace = true
+runui-runs.workspace = true
+anyhow.workspace = true
+chrono = { workspace = true, features = ["serde"] }
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+fs2.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true

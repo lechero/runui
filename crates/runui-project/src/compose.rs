@@ -76,17 +76,46 @@ pub(crate) fn read_tracked(
     if named {
         base += &format!(" -f {}", quote(&filepath::base(path)));
     }
-    let cmd =
-        |name: String, desc: String| Command { source: Source::Compose, run: format!("{base} {name}"), name, desc };
+    let cmd = |name: String, arguments: Vec<String>, desc: String| {
+        let mut argv = vec!["docker".into(), "compose".into()];
+        if named {
+            argv.extend(["-f".into(), filepath::base(path)]);
+        }
+        argv.extend(arguments);
+        Command {
+            source: Source::Compose,
+            run: format!("{base} {name}"),
+            name,
+            desc,
+            argv,
+            args_separator: false,
+            defining_file: path.into(),
+            defining_line: None,
+            variant: String::new(),
+            generated: true,
+        }
+    };
     let mut cmds = vec![
-        cmd("up".into(), "Start every service; their logs follow here, and s stops them".into()),
-        cmd("up --build".into(), "Build the images again, then start every service".into()),
-        cmd("down".into(), "Stop the services and remove their containers and networks".into()),
-        cmd("ps".into(), "The services' containers, and how they are".into()),
-        cmd("logs -f".into(), "Follow the services' logs, however they were started".into()),
+        cmd("up".into(), vec!["up".into()], "Start every service; their logs follow here, and s stops them".into()),
+        cmd(
+            "up --build".into(),
+            vec!["up".into(), "--build".into()],
+            "Build the images again, then start every service".into(),
+        ),
+        cmd("down".into(), vec!["down".into()], "Stop the services and remove their containers and networks".into()),
+        cmd("ps".into(), vec!["ps".into()], "The services' containers, and how they are".into()),
+        cmd(
+            "logs -f".into(),
+            vec!["logs".into(), "-f".into()],
+            "Follow the services' logs, however they were started".into(),
+        ),
     ];
     for (name, svc) in doc.pairs(cd.services) {
-        let mut c = cmd(format!("up {}", quote(&name)), format!("Start {name} and what it depends on"));
+        let mut c = cmd(
+            format!("up {}", quote(&name)),
+            vec!["up".into(), name.clone()],
+            format!("Start {name} and what it depends on"),
+        );
         let from = service_from(&doc, svc);
         if !from.is_empty() {
             c.desc += &format!(": {from}");
