@@ -340,9 +340,15 @@ impl Palette {
                     lines.push(safe(error));
                 }
                 if let Some(output) = &probe.output {
-                    lines.push(format!("{:?} · code {:?} · {} ms", output.end, output.code, output.elapsed_ms));
-                    lines.push(safe(&output.stdout));
-                    lines.push(safe(&output.stderr));
+                    let result = match output.end {
+                        runui_runs::inspection::End::Exited => "exited",
+                        runui_runs::inspection::End::Timeout => "timed out",
+                        runui_runs::inspection::End::OutputLimit => "output limit reached",
+                        runui_runs::inspection::End::Cancelled => "cancelled",
+                    };
+                    let code = output.code.map(|code| code.to_string()).unwrap_or_else(|| "signal".into());
+                    lines.push(format!("{result} · exit {code} · {} ms", output.elapsed_ms));
+                    lines.extend(output.stdout.lines().chain(output.stderr.lines()).map(safe));
                 }
             }
         }

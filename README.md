@@ -184,6 +184,7 @@ If your shell and tmux disagree, use the absolute path from `command -v runui` i
 | `/`, `esc` | Filter the current tab; clear the filter. |
 | `ctrl+p` | Open the palette; `tab` switches Commands / Recent, `alt+s` switches scope, `alt+p` opens projects. |
 | `ctrl+v`, `f2` in the palette | Scrollable command details or discovery diagnostics. |
+| `alt+i` in the palette | Explicit native Composer/PHP version checks, with limits and no unread run. |
 | `enter` | Run a command; on a run, focus its output. |
 | `s` / `R` | Stop or restart a run. |
 | `m` / `a` / `e` / `D` | Star, add, edit, or remove; `D` also forgets an ended run. |

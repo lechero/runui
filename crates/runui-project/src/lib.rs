@@ -1,6 +1,6 @@
 //! The commands a project's files define: a Taskfile's tasks,
 //! package.json's scripts, a Makefile's targets, a docker compose file's
-//! services and a Maven pom's builds, each ready to run as you would type
+//! services, a Maven pom's builds and Composer scripts, each ready to run as you would type
 //! it, in the project's folder and the folders under it, a monorepo's
 //! packages and a Maven project's modules. Ported from
 //! internal/runui/project.
@@ -58,7 +58,7 @@ pub const SOURCES: [Source; 6] =
 
 impl Source {
     /// as_str is the source as it's written down: task, npm, make,
-    /// compose or maven (Go's `string(s)`).
+    /// compose, maven or composer (Go's `string(s)`).
     pub fn as_str(self) -> &'static str {
         match self {
             Source::Taskfile => "task",

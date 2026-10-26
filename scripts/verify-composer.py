@@ -150,11 +150,15 @@ class Scripts {
     # Exercise it independently so options forwarded to --version do not
     # conflate its own parser with PHP callback/argument round trips.
     composer_version = next(entry for entry in entries if entry['name']=='composer-version')
-    _,text,_ = launch(composer_version)
+    _,text,metadata = launch(composer_version)
     assert 'Composer version' in text,text
+    assert '--timeout=' not in metadata['command'], 'default execution overrode the project timeout'
     direct_helper = subprocess.run([PHP,str(PHAR),'run-script','--','composer-version',*arguments],
                                    cwd=project,env=configured,text=True,capture_output=True,timeout=30)
     launch(composer_version,arguments,expected=direct_helper.returncode)
+    launch(hooks[0],['explicit hook'])
+    event = json.loads((project/'trace.jsonl').read_text().splitlines()[-1])
+    assert event['kind']=='hook' and event['args']==['explicit hook'],event
     odd = next(entry for entry in entries if entry['name']==odd_name)
     launch(odd,arguments)
     assert json.loads((project/'trace.jsonl').read_text().splitlines()[-1])['args']==arguments
