@@ -59,4 +59,4 @@ This regenerates browser/touch/app icons and the repository social card. The [br
 
 ## Planned discovery improvements
 
-The [research](command-discovery-research.md) and [integration plan](command-discovery-plan.md) are roadmap documents. They describe catalog search, workspace membership, registered projects, and additional sources that are not yet shipped. The user guide documents current behavior.
+The [research](command-discovery-research.md) and [integration plan](command-discovery-plan.md) are roadmap documents. They define complete-v1 catalog search, workspace and registered-project scope, Composer scripts, Cargo workspaces/targets, runui usage history, and opt-in shell recall. These remain planned features; the user guide documents current behavior. [CONTEXT.md](../CONTEXT.md) defines the shared terms, and `python3 -B scripts/probe-discovery.py` reproduces the current discovery gaps using disposable Rust fixtures (cached Cargo dependencies required).
