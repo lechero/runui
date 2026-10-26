@@ -154,7 +154,12 @@ fn workspace(directory: Option<&str>) -> anyhow::Result<Workspace> {
     })
 }
 
-pub(super) fn dispatch(command: &str, args: &[String], output: &mut dyn Write) -> Result<(), Failure> {
+pub(super) fn dispatch(
+    cancel: &std::sync::atomic::AtomicBool,
+    command: &str,
+    args: &[String],
+    output: &mut dyn Write,
+) -> Result<(), Failure> {
     let options = parse(command, args)?;
     let workspace = workspace(options.directory.as_deref())?;
     let snapshot = if matches!(command, "inspect" | "run") {
@@ -222,9 +227,7 @@ pub(super) fn dispatch(command: &str, args: &[String], output: &mut dyn Write) -
                     return Err(Failure::Usage("inspect does not accept launch inputs".into()));
                 }
                 let entry = snapshot.get(id).ok_or_else(|| anyhow!("command {id} does not exist in this scope"))?;
-                let native = options
-                    .native
-                    .then(|| runui_catalog::inspection::check(entry, &std::sync::atomic::AtomicBool::new(false)));
+                let native = options.native.then(|| runui_catalog::inspection::check(entry, cancel));
                 if options.json {
                     let mut value = serde_json::to_value(entry).map_err(anyhow::Error::from)?;
                     if let Some(report) = &native {

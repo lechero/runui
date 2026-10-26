@@ -346,6 +346,69 @@ fn composer_cli_exposes_hooks_only_when_requested_and_passive_inspection_has_no_
 }
 
 #[test]
+fn interrupting_native_cli_inspection_cancels_its_child_before_the_deadline() {
+    use std::os::unix::fs::PermissionsExt;
+    use std::process::Stdio;
+    use std::time::{Duration, Instant};
+    let s = sandbox();
+    let bin = std::path::Path::new(&s.root).join("bin");
+    fs::create_dir(&bin).unwrap();
+    for (name, body) in
+        [("php", "printf 'PHP 8.4.0\\n'"), ("composer", "printf ready > \"$PROBE_READY\"; sleep 30 & wait")]
+    {
+        let path = bin.join(name);
+        fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
+        fs::set_permissions(path, fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    fs::write(filepath::join(&[&s.dir, "composer.json"]), r#"{"scripts":{"check":"@php never.php"}}"#).unwrap();
+    let ready = std::path::Path::new(&s.root).join("probe-ready");
+    let command = || {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_runui"));
+        command
+            .env("HOME", &s.root)
+            .env("XDG_CONFIG_HOME", filepath::join(&[&s.root, "config"]))
+            .env("XDG_STATE_HOME", filepath::join(&[&s.root, "state"]))
+            .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
+            .env("PROBE_READY", &ready)
+            .current_dir(&s.dir);
+        command
+    };
+    let discovery = command().args(["commands", "--json", "source:composer"]).output().unwrap();
+    assert!(discovery.status.success());
+    let entry: serde_json::Value = serde_json::from_slice(&discovery.stdout).unwrap();
+    let id = entry["commands"][0]["id"].as_str().unwrap();
+    let mut child = command()
+        .args(["inspect", "--native", "--json", id])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let until = Instant::now() + Duration::from_secs(5);
+    while !ready.exists() {
+        if Instant::now() >= until {
+            let _ = child.kill();
+            panic!("native Composer probe never started");
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(Command::new("/bin/kill").args(["-INT", &child.id().to_string()]).status().unwrap().success());
+    let stopped = Instant::now();
+    let output = child.wait_with_output().unwrap();
+    assert!(stopped.elapsed() < Duration::from_secs(2));
+    assert!(output.status.success(), "{:?}", output.stderr);
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["native_inspection"]["checked"][1]["output"]["end"], "cancelled");
+    assert_eq!(report["native_inspection"]["ready"], false);
+    assert!(
+        std::path::Path::new(&s.root).join("state/runui/runs").read_dir().ok().into_iter().flatten().all(|item| !item
+            .unwrap()
+            .path()
+            .join("run.json")
+            .exists())
+    );
+}
+
+#[test]
 fn catalog_pages_are_bounded_and_text_output_does_not_emit_terminal_controls() {
     let s = sandbox();
     let (code, out, error) = s.run(&["commands", "-C", &s.dir, "--limit", "1", "--json"]);

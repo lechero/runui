@@ -113,7 +113,7 @@ fn dispatch(
         return Ok(runs::supervise(&args[0])?);
     }
     if matches!(cmd, "commands" | "find" | "inspect" | "run") {
-        return catalog::dispatch(cmd, args, stdout);
+        return catalog::dispatch(canceled, cmd, args, stdout);
     }
     if cmd == "projects" {
         return projects::dispatch(args, stdout);
