@@ -1024,6 +1024,29 @@ fn discovery_refreshes_nested_commands_without_losing_the_filter_or_selection() 
 }
 
 #[test]
+fn deep_source_folders_do_not_show_a_discovery_error_but_the_policy_is_inspectable() {
+    let world = new_world();
+    fs::create_dir_all(filepath::join(&[&world.dir, "ui.apps/src/main/content/jcr_root"])).unwrap();
+    fs::write(filepath::join(&[&world.dir, "ui.apps/package.json"]), r#"{"scripts":{"watch":"true"}}"#).unwrap();
+    let mut h = open(&world);
+    h.keys(&["2"]);
+    assert!(h.screen().contains("ui.apps"));
+    assert!(!h.screen().contains("discovery incomplete"));
+    assert!(h.m.a.discovery.complete());
+    h.keys(&["ctrl+p", "f2"]);
+    assert!(h.screen().contains("notice"));
+    assert!(h.screen().contains("below depth 3"));
+
+    h.keys(&["esc"]);
+    fs::write(filepath::join(&[&world.dir, "package.json"]), "{").unwrap();
+    h.m.a.ticks = 7;
+    h.send(tea::msg(TickMsg(SystemTime::now())));
+    assert!(h.screen().contains("package.json"));
+    assert!(!h.m.a.discovery.complete(), "real definition errors must remain failures");
+    assert!(h.m.a.shown().note.starts_with("package.json:"));
+}
+
+#[test]
 fn discovery_refresh_reads_hidden_includes_and_shows_limitations() {
     let world = new_world();
     fs::create_dir_all(filepath::join(&[&world.dir, ".tasks"])).unwrap();

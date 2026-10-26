@@ -62,7 +62,8 @@ impl Discovery {
         self.dependencies.iter().any(|(path, before)| stamp(path) != *before)
     }
 
-    /// complete is false when a source failed or a discovery limit was reached.
+    /// complete is false when a source failed or a resource budget was reached.
+    /// Normal scope exclusions, including incidental depth, remain notices.
     pub fn complete(&self) -> bool {
         self.diagnostics.is_empty() && self.files.iter().all(|file| file.err.is_none())
     }
@@ -628,11 +629,18 @@ pub(crate) fn folders(
                 }
                 if depth == max_depth {
                     if !scan.visited_folders.contains(&child) {
-                        scan.problem(
-                            None,
-                            dir,
-                            format!("incidental folders below depth {max_depth} were not inspected"),
-                        );
+                        if declared {
+                            scan.problem(
+                                members.map(|rules| rules.source),
+                                dir,
+                                format!("declared workspace traversal stopped at the depth {max_depth} limit"),
+                            );
+                        } else {
+                            scan.notice(
+                                dir,
+                                format!("incidental folders below depth {max_depth} are outside the scan scope; select a deeper folder or declare workspace members to include them"),
+                            );
+                        }
                     }
                     continue;
                 }

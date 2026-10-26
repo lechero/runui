@@ -263,6 +263,29 @@ fn tmux_hides_reviewed_errors_while_other_counts_remain() {
 }
 
 #[test]
+fn incidental_depth_is_a_notice_in_catalog_json_without_a_list_failure() {
+    let s = sandbox();
+    fs::create_dir_all(filepath::join(&[&s.dir, "ui.apps/src/main/content/jcr_root"])).unwrap();
+    fs::write(filepath::join(&[&s.dir, "ui.apps/package.json"]), r#"{"scripts":{"watch":"true"}}"#).unwrap();
+    let (code, output, error) = s.run(&["commands", "-C", &s.dir, "--json"]);
+    assert_eq!(code, EXIT_OK, "{error}");
+    let page: serde_json::Value = serde_json::from_str(&output).unwrap();
+    assert_eq!(page["complete"], true);
+    assert!(page["commands"].as_array().unwrap().iter().any(|entry| entry["name"] == "watch"));
+    let diagnostics = page["diagnostics"].as_array().unwrap();
+    assert!(
+        diagnostics
+            .iter()
+            .any(|item| item["kind"] == "notice" && item["message"].as_str().unwrap().contains("below depth 3"))
+    );
+    assert!(diagnostics.iter().all(|item| item["kind"] == "notice"));
+    let (code, output, error) = s.run(&["list", "-C", &s.dir]);
+    assert_eq!(code, EXIT_OK, "{error}");
+    assert!(output.contains("npm run watch"));
+    assert!(!output.contains("Discovery incomplete"));
+}
+
+#[test]
 fn list_reports_partial_discovery_without_losing_other_commands() {
     let s = sandbox();
     fs::write(
