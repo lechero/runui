@@ -262,7 +262,12 @@ fn list_commands(w: &Workspace) -> Result<Value> {
         }));
     }
     let mut errors = Vec::new();
-    for file in project::load(&w.dir, &w.repo) {
+    let discovery = project::discover(&w.dir, &w.repo);
+    let complete = discovery.complete();
+    let diagnostics: Vec<_> = discovery.diagnostics.iter().map(|problem| json!({
+        "file": problem.path, "source": problem.source.map(|source| source.as_str()), "message": problem.message,
+    })).collect();
+    for file in discovery.files {
         if let Some(error) = file.err {
             errors.push(json!({"file": file.path, "error": error}));
         }
@@ -278,7 +283,9 @@ fn list_commands(w: &Workspace) -> Result<Value> {
             }));
         }
     }
-    Ok(json!({"project_directory": w.dir, "commands": commands, "errors": errors}))
+    Ok(
+        json!({"project_directory": w.dir, "commands": commands, "errors": errors, "complete": complete, "diagnostics": diagnostics}),
+    )
 }
 
 fn start_run(w: &Workspace, agent: &str, args: StartArgs) -> Result<Value> {

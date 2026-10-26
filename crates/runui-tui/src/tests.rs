@@ -888,3 +888,65 @@ fn log_fits_small_terminals_and_help_does_not_review_results() {
         assert!(frame.contains("Log"));
     }
 }
+
+#[test]
+fn discovery_refreshes_nested_commands_without_losing_the_filter_or_selection() {
+    let world = new_world();
+    let mut h = open(&world);
+    h.keys(&["2", "/", "d", "e", "v", "enter"]);
+    let before = h.m.a.selected().unwrap().key();
+    fs::create_dir_all(filepath::join(&[&world.dir, "apps/web"])).unwrap();
+    fs::write(filepath::join(&[&world.dir, "apps/web/package.json"]), r#"{"scripts":{"dev":"echo nested"}}"#).unwrap();
+    h.m.a.ticks = 7;
+    h.send(tea::msg(TickMsg(SystemTime::now())));
+    assert_eq!(h.m.a.selected().unwrap().key(), before);
+    assert_eq!(h.m.a.shown().filter, "dev");
+    assert!(h.screen().contains("apps/web"));
+}
+
+#[test]
+fn discovery_refresh_reads_hidden_includes_and_shows_limitations() {
+    let world = new_world();
+    fs::create_dir_all(filepath::join(&[&world.dir, ".tasks"])).unwrap();
+    fs::write(
+        filepath::join(&[&world.dir, "Taskfile.yml"]),
+        "version: '3'\nincludes:\n  docs: .tasks/docs.yml\n  remote: https://example.invalid/Taskfile.yml\n",
+    )
+    .unwrap();
+    let included = filepath::join(&[&world.dir, ".tasks/docs.yml"]);
+    fs::write(&included, "version: '3'\ntasks:\n  serve: {desc: Before}\n").unwrap();
+    let mut h = open(&world);
+    assert!(h.m.a.shown().note.contains("not inspected"));
+    assert!(h.screen().contains("discovery incomplete"));
+    fs::write(&included, "version: '3'\ntasks:\n  serve: {desc: After}\n").unwrap();
+    fs::File::options()
+        .write(true)
+        .open(&included)
+        .unwrap()
+        .set_modified(SystemTime::now() + Duration::from_secs(3600))
+        .unwrap();
+    h.m.a.ticks = 7;
+    h.send(tea::msg(TickMsg(SystemTime::now())));
+    assert_eq!(h.m.a.selected().unwrap().desc, "After");
+    assert!(h.m.a.shown().note.contains("not inspected"));
+    assert!(h.screen().contains("discovery incomplete"));
+}
+
+#[test]
+fn manual_refresh_coalesces_and_discards_the_superseded_result() {
+    let world = new_world();
+    let mut h = open(&world);
+    let first = h.m.a.refresh_files(false).unwrap();
+    // Check and finish the old scan, but hold its message while another
+    // refresh is requested and a new definition appears.
+    let result = first().unwrap();
+    assert!(h.m.a.refresh_files(true).is_none());
+    assert!(h.m.a.refresh_files(true).is_none());
+    fs::write(filepath::join(&[&world.dir, "Taskfile.yml"]), "version: '3'\ntasks:\n  added: echo added\n").unwrap();
+    let next = h.m.a.update(result);
+    assert!(h.m.a.discovery.files.iter().all(|file| file.source != project::Source::Taskfile));
+    h.run(next);
+    assert!(h.m.a.discovery.files.iter().any(|file| file.source == project::Source::Taskfile));
+    assert!(!h.m.a.discovery_busy);
+    assert!(!h.m.a.discovery_queued);
+}

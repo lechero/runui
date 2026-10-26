@@ -1,10 +1,9 @@
 //! A Makefile's targets, with what they say they do.
 
-use std::path::Path;
 use std::sync::LazyLock;
 
 use regex::Regex;
-use runui_core::golang::{go_lossy, read_file};
+use runui_core::golang::go_lossy;
 
 use crate::{Command, Source, quote};
 
@@ -48,7 +47,11 @@ const MAX_TOKEN: usize = 1024 * 1024;
 /// Special targets (.PHONY), pattern rules (%.o) and targets made of
 /// variables are left out.
 pub fn read_makefile(path: &str) -> (Vec<Command>, Option<anyhow::Error>) {
-    let data = match read_file(Path::new(path)) {
+    read_tracked(path, &mut crate::discovery::Scan::new(&runui_core::golang::filepath::dir(path)))
+}
+
+pub(crate) fn read_tracked(path: &str, scan: &mut crate::discovery::Scan) -> (Vec<Command>, Option<anyhow::Error>) {
+    let data = match scan.read(path) {
         Ok(data) => data,
         Err(e) => return (Vec::new(), Some(e)),
     };

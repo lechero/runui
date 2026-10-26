@@ -1,10 +1,8 @@
 //! package.json's scripts, run through the package manager the project
 //! uses.
 
-use std::path::Path;
-
+use runui_core::golang::filepath;
 use runui_core::golang::jsontext::{self, Decoder, Token};
-use runui_core::golang::{filepath, read_file};
 
 use crate::{Command, Source, is_file, quote};
 
@@ -24,7 +22,15 @@ const LOCK_FILES: [(&str, &str); 6] = [
 /// folder or above it, up to stop (a workspace's lock file is at its
 /// root), else npm.
 pub fn read_package_json(path: &str, stop: &str) -> (Vec<Command>, Option<anyhow::Error>) {
-    let data = match read_file(Path::new(path)) {
+    read_tracked(path, stop, &mut crate::discovery::Scan::new(&filepath::dir(path)))
+}
+
+pub(crate) fn read_tracked(
+    path: &str,
+    stop: &str,
+    scan: &mut crate::discovery::Scan,
+) -> (Vec<Command>, Option<anyhow::Error>) {
+    let data = match scan.read(path) {
         Ok(data) => data,
         Err(e) => return (Vec::new(), Some(e)),
     };
@@ -33,7 +39,7 @@ pub fn read_package_json(path: &str, stop: &str) -> (Vec<Command>, Option<anyhow
         Err(e) => return (Vec::new(), Some(anyhow::anyhow!("package.json: {e}"))),
     };
     if manager.is_empty() {
-        manager = lock_manager(&filepath::dir(path), stop);
+        manager = lock_manager(&filepath::dir(path), stop, scan);
     }
     let cmds = scripts
         .into_iter()
@@ -107,17 +113,19 @@ fn manager_name(field: &str) -> &str {
 
 /// lock_manager is the package manager of the nearest lock file, from dir
 /// up to stop; npm when there's none.
-fn lock_manager(dir: &str, stop: &str) -> String {
+fn lock_manager(dir: &str, stop: &str, scan: &mut crate::discovery::Scan) -> String {
     let stop = filepath::clean(stop);
     let mut d = filepath::clean(dir);
     loop {
         for (file, manager) in LOCK_FILES {
-            if is_file(&filepath::join(&[&d, file])) {
+            let path = filepath::join(&[&d, file]);
+            scan.watch(&path);
+            if is_file(&path) {
                 return manager.to_string();
             }
         }
         let parent = filepath::dir(&d);
-        if d == stop || parent == d || !d.starts_with(&stop) {
+        if d == stop || parent == d || !std::path::Path::new(&d).starts_with(&stop) {
             return "npm".to_string();
         }
         d = parent;

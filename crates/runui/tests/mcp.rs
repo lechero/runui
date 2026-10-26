@@ -86,6 +86,23 @@ fn mcp_discovers_starts_reads_and_stops_a_run() {
     assert_eq!(commands["isError"], false);
     assert!(commands["structuredContent"]["commands"].as_array().unwrap().iter().any(|c| c["command"] == "make build"));
 
+    assert_eq!(commands["structuredContent"]["complete"], true);
+    assert_eq!(commands["structuredContent"]["diagnostics"], json!([]));
+    fs::write(
+        dir.join("Taskfile.yml"),
+        "version: '3'\nincludes:\n  remote: https://example.invalid/Taskfile.yml\ntasks:\n  check: echo check\n",
+    )
+    .unwrap();
+    let partial = client.tool(40, "list_commands", json!({}));
+    assert_eq!(partial["isError"], false);
+    let data = &partial["structuredContent"];
+    assert_eq!(data["complete"], false);
+    assert_eq!(data["errors"], json!([]));
+    assert_eq!(data["diagnostics"][0]["source"], "task");
+    assert!(data["diagnostics"][0]["message"].as_str().unwrap().contains("not inspected"));
+    assert!(data["commands"].as_array().unwrap().iter().any(|command| command["command"] == "make build"));
+    fs::remove_file(dir.join("Taskfile.yml")).unwrap();
+
     let started = client.tool(5, "start_run", json!({"command": "echo MCP_READY; sleep 5", "name": "mcp test"}));
     assert_eq!(started["isError"], false, "{started}");
     assert_eq!(started["structuredContent"]["agent"], "test", "the run isn't the client's: {started}");
