@@ -143,7 +143,7 @@ fn tools() -> Vec<Value> {
             "name": "list_commands",
             "description": "Search a bounded page of the shared command catalog and saved favorites. IDs, fingerprints, provenance and exact working directories can be used with start_run. Personal shell history is never included.",
             "inputSchema": {"type": "object", "properties": {
-                "query": {"type":"string"}, "limit":{"type":"integer","minimum":1,"maximum":500,"default":200}, "offset":{"type":"integer","minimum":0,"default":0}
+                "query": {"type":"string"}, "limit":{"type":"integer","minimum":1,"maximum":500,"default":200}, "offset":{"type":"integer","minimum":0,"default":0}, "scope":{"type":"string","enum":["project","workspace"],"default":"project"}
             }, "additionalProperties": false},
             "annotations": {"readOnlyHint": true}
         }),
@@ -154,6 +154,7 @@ fn tools() -> Vec<Value> {
                 "command": {"type": "string", "description": "The exact raw shell command; mutually exclusive with id."},
                 "id": {"type":"string","description":"Command catalog ID from list_commands; resolved again before launch."},
                 "fingerprint": {"type":"string","description":"Expected definition fingerprint; stale selections fail before launch."},
+                "scope": {"type":"string","enum":["project","workspace"],"default":"project","description":"Catalog scope used to resolve an id; raw commands use project context."},
                 "inputs": {"type":"object","properties":{"args":{"type":"array","items":{"type":"string"}},"variables":{"type":"object","additionalProperties":{"type":"string"}}},"additionalProperties":false},
                 "directory": {"type": "string", "description": "Working directory, absolute or relative to the selected project; defaults to the project directory."},
                 "name": {"type": "string", "description": "Optional label shown in runui."}
@@ -194,6 +195,8 @@ fn tools() -> Vec<Value> {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct StartArgs {
+    #[serde(default)]
+    scope: runui_catalog::Scope,
     #[serde(default)]
     command: Option<String>,
     #[serde(default)]
@@ -261,6 +264,8 @@ fn call(w: &Workspace, agent: &str, name: &str, args: Value) -> Result<Value> {
 #[serde(deny_unknown_fields)]
 struct CatalogArgs {
     #[serde(default)]
+    scope: runui_catalog::Scope,
+    #[serde(default)]
     query: String,
     #[serde(default)]
     limit: Option<usize>,
@@ -273,7 +278,7 @@ fn list_commands(w: &Workspace, args: CatalogArgs) -> Result<Value> {
     if !(1..=500).contains(&limit) {
         return Err(anyhow!("limit must be between 1 and 500"));
     }
-    let snapshot = w.catalog()?;
+    let snapshot = w.catalog_scoped(args.scope)?;
     let mut query = runui_catalog::Query::parse(&args.query).map_err(|error| anyhow!(error))?;
     query.kinds = vec![runui_catalog::Kind::Command, runui_catalog::Kind::Favorite];
     query.limit = limit + 1;
@@ -303,10 +308,10 @@ fn list_commands(w: &Workspace, args: CatalogArgs) -> Result<Value> {
         .diagnostics
         .iter()
         .filter(|problem| problem.kind != "parse")
-        .map(|problem| json!({"file":problem.path,"source":problem.source,"message":problem.message}))
+        .map(|problem| json!({"file":problem.path,"source":problem.source,"message":problem.message,"kind":problem.kind}))
         .collect();
     Ok(
-        json!({"schema_version":1,"project_directory":w.dir,"commands":commands,"errors":errors,"complete":snapshot.diagnostics.is_empty(),"diagnostics":diagnostics,"next_offset":if more {Some(args.offset+limit)} else {None}}),
+        json!({"schema_version":1,"project_directory":w.dir,"scope":args.scope,"commands":commands,"errors":errors,"complete":snapshot.complete(),"diagnostics":diagnostics,"next_offset":if more {Some(args.offset+limit)} else {None}}),
     )
 }
 
@@ -316,8 +321,11 @@ fn start_run(w: &Workspace, agent: &str, args: StartArgs) -> Result<Value> {
         if args.command.is_some() || args.directory.is_some() {
             return Err(anyhow!("id cannot be combined with command or directory"));
         }
-        Some(w.catalog()?.prepare(id, args.fingerprint.as_deref(), &args.inputs)?)
+        Some(w.catalog_scoped(args.scope)?.prepare(id, args.fingerprint.as_deref(), &args.inputs)?)
     } else {
+        if args.scope != runui_catalog::Scope::Project {
+            return Err(anyhow!("scope applies to catalog id launches; raw commands use project context"));
+        }
         if args.fingerprint.is_some() || args.inputs != runui_catalog::Inputs::default() {
             return Err(anyhow!("fingerprint and inputs require a command id"));
         }

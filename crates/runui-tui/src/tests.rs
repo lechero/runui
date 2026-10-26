@@ -970,6 +970,59 @@ fn palette_searches_sources_without_mutating_the_panel_filter_or_selection() {
 }
 
 #[test]
+fn queued_palette_refresh_keeps_the_latest_usable_snapshot_visible() {
+    let world = new_world();
+    let mut h = open(&world);
+    let result = h.m.a.open_palette().unwrap()().unwrap();
+    let loaded = match result.downcast::<BatchMsg>() {
+        Ok(batch) => batch
+            .0
+            .into_iter()
+            .filter_map(|command| command.and_then(|command| command()))
+            .find(|msg| msg.is::<palette::Loaded>())
+            .unwrap(),
+        Err(message) => message,
+    };
+    assert!(h.m.a.refresh_palette().is_none());
+    let next = h.m.a.update(loaded);
+    assert!(h.screen().contains("make build"), "queued refresh must not discard the only usable snapshot");
+    h.run(next);
+}
+
+#[test]
+fn workspace_palette_keeps_project_panels_and_executes_in_the_selected_members_directory() {
+    let world = new_world();
+    fs::write(filepath::join(&[&world.dir, "package.json"]), r#"{"workspaces":["packages/**"]}"#).unwrap();
+    let web = filepath::join(&[&world.dir, "packages/web"]);
+    let engine = filepath::join(&[&world.dir, "packages/a/b/engine"]);
+    fs::create_dir_all(&web).unwrap();
+    fs::create_dir_all(&engine).unwrap();
+    fs::write(filepath::join(&[&web, "package.json"]), r#"{"scripts":{"web":"true"}}"#).unwrap();
+    fs::write(filepath::join(&[&engine, "package.json"]), "{}").unwrap();
+    fs::write(filepath::join(&[&engine, "Makefile"]), "engine:\n\t@printf 'ENGINE_READY\\n' > result.txt\n").unwrap();
+    let cfg = Config::new(&web, &world.dir, &world.home, world.favs_now(), world.runs.clone());
+    let mut h = Harness { m: Model::new(cfg), w: &world };
+    h.send(tea::msg(WindowSizeMsg { width: 120, height: 36 }));
+    h.keys(&["ctrl+p"]);
+    h.typed("engine");
+    assert!(h.screen().contains("No matches"));
+    h.keys(&["alt+s"]);
+    assert!(h.screen().contains("Commands · Workspace"));
+    assert!(h.screen().contains("make engine"));
+    fs::write(filepath::join(&[&engine, "Makefile"]), "engine: ## Updated\n\t@printf 'ENGINE_READY\\n' > result.txt\n")
+        .unwrap();
+    h.keys(&["enter"]);
+    assert!(h.screen().contains("definition changed"));
+    assert!(world.runs.list().unwrap().is_empty());
+    h.keys(&["enter"]);
+    h.wait_for("exited 0");
+    assert!(fs::read_to_string(filepath::join(&[&engine, "result.txt"])).unwrap().contains("ENGINE_READY"));
+    assert_eq!(h.m.a.cfg.dir, web);
+    assert!(h.m.a.discovery.files.iter().all(|file| file.dir == web));
+    assert_eq!(h.m.a.panels[PANEL_RUNS].cur, RUNS_EVERYWHERE);
+}
+
+#[test]
 fn palette_revalidates_stale_definitions_then_launches_and_records_usage() {
     let world = new_world();
     let makefile = filepath::join(&[&world.dir, "Makefile"]);

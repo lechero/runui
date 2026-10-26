@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use runui_catalog::{Context, Entry, Inputs, Kind, Query, Snapshot};
+use runui_catalog::{Context, Entry, Inputs, Kind, Query, Scope, Snapshot};
 use runui_tea::ansi;
 use runui_tea::bubbles::textinput;
 use runui_tea::tea::{self, Cmd, KeyPressMsg, Msg};
@@ -23,6 +23,8 @@ pub(crate) struct Palette {
     hits: Vec<Entry>,
     at: usize,
     mode: Mode,
+    scope: Scope,
+    workspace_discovery: Option<(String, Arc<runui_project::Discovery>)>,
     pub(crate) loading: bool,
     queued: bool,
     launching: bool,
@@ -35,6 +37,7 @@ pub(crate) struct Palette {
 pub(crate) struct Loaded {
     epoch: u64,
     snapshot: Snapshot,
+    workspace_discovery: Option<(String, Arc<runui_project::Discovery>)>,
 }
 pub(crate) struct Launched {
     epoch: u64,
@@ -43,6 +46,7 @@ pub(crate) struct Launched {
     warning: Option<String>,
     fresh: Option<Snapshot>,
     discovery: Option<runui_project::Discovery>,
+    scope: Scope,
 }
 
 impl Palette {
@@ -59,6 +63,8 @@ impl Palette {
             hits: Vec::new(),
             at: 0,
             mode: Mode::Commands,
+            scope: Scope::Project,
+            workspace_discovery: None,
             loading: false,
             queued: false,
             launching: false,
@@ -115,8 +121,12 @@ impl Palette {
         } else {
             ""
         };
+        let scope = match self.scope {
+            Scope::Project => "Project",
+            Scope::Workspace => "Workspace",
+        };
         let mut lines = vec![
-            S_HEADING.render(&format!("{mode} · Project{status}")),
+            S_HEADING.render(&format!("{mode} · {scope}{status}")),
             self.input.view(),
             S_DIM.render(&"─".repeat(width as usize)),
         ];
@@ -163,7 +173,7 @@ impl Palette {
         };
         lines.push(information);
         lines.push(S_DIM.render(
-            "enter run/focus · tab mode · alt+r another · alt+m favorite · ctrl+y copy · ctrl+o source · ctrl+t terminal · esc back",
+            "enter run/focus · tab mode · alt+s scope · alt+r another · alt+m favorite · ctrl+y copy · ctrl+o source · ctrl+t terminal · esc back",
         ));
         lines.truncate(height);
         lines.into_iter().map(|line| ansi::truncate(&line, width, "…")).collect::<Vec<_>>().join("\n")
@@ -268,6 +278,7 @@ pub(crate) fn safe(text: &str) -> String {
 pub(crate) fn build(
     dir: &str,
     repo: &str,
+    invocation: &str,
     discovery: &runui_project::Discovery,
     favorites: &[runui_favorites::Favorite],
     runs: &[runui_runs::Run],
@@ -279,6 +290,7 @@ pub(crate) fn build(
     }
     let usage = store.as_ref().map(|store| store.load()).transpose();
     let mut context = Context::new(dir, repo);
+    context.invocation_dir = runui_catalog::canonical(invocation);
     context.environment = context.environment.with_shell(&runner.execution_shell());
     let default = runui_catalog::usage::Data::default();
     let mut snapshot = Snapshot::build(
@@ -315,13 +327,37 @@ impl App {
             return None;
         }
         palette.loading = true;
+        let scope = palette.scope;
+        let previous = palette.workspace_discovery.clone();
         let epoch = self.palette_epoch;
         let (dir, repo) = (self.cfg.dir.clone(), self.cfg.repo.clone());
-        let (discovery, favorites, runs, runner) =
-            (self.discovery.clone(), self.cfg.favorites.for_dir(&dir), self.runs.clone(), self.cfg.runs.clone());
-        tea::cmd_msg(move || Loaded {
-            epoch,
-            snapshot: build(&dir, &repo, &discovery, &favorites, &runs, runner.as_ref()),
+        let invocation = self.cfg.invocation_dir.clone();
+        let (discovery, favorites, runs, runner, discover) = (
+            self.discovery.clone(),
+            self.cfg.favorites.clone(),
+            self.runs.clone(),
+            self.cfg.runs.clone(),
+            self.cfg.discover,
+        );
+        tea::cmd_msg(move || {
+            let selected = dir;
+            let dir = scope.directory(&selected, &repo);
+            let discovery = if scope == Scope::Project {
+                discovery
+            } else if let Some((_, previous)) =
+                previous.filter(|(previous_dir, previous)| *previous_dir == dir && !previous.changed())
+            {
+                previous
+            } else {
+                Arc::new(discover(&dir, &repo))
+            };
+            let favorites =
+                if scope == Scope::Workspace { favorites.for_tree(&dir) } else { favorites.for_dir(&selected) };
+            Loaded {
+                epoch,
+                snapshot: build(&dir, &repo, &invocation, &discovery, &favorites, &runs, runner.as_ref()),
+                workspace_discovery: if scope == Scope::Workspace { Some((dir, discovery)) } else { None },
+            }
         })
     }
 
@@ -331,12 +367,10 @@ impl App {
         }
         let palette = self.palette.as_mut()?;
         palette.loading = false;
-        if palette.queued {
-            palette.queued = false;
-            return self.refresh_palette();
-        }
+        let queued = std::mem::take(&mut palette.queued);
+        palette.workspace_discovery = message.workspace_discovery;
         palette.set_snapshot(message.snapshot);
-        None
+        if queued { self.refresh_palette() } else { None }
     }
 
     pub(crate) fn palette_input(&mut self, message: &Msg) -> Cmd {
@@ -361,6 +395,16 @@ impl App {
                 palette.note.clear();
                 palette.query();
                 None
+            }
+            "alt+s" if !palette.launching => {
+                palette.scope = if palette.scope == Scope::Project { Scope::Workspace } else { Scope::Project };
+                palette.workspace_discovery = None;
+                palette.loading = false;
+                palette.queued = false;
+                palette.set_snapshot(Snapshot::default());
+                palette.note = "Scope changes search context; each command keeps its own working directory".into();
+                self.palette_epoch += 1;
+                self.refresh_palette()
             }
             "up" if palette.detail => {
                 palette.detail_top = palette.detail_top.saturating_sub(1);
@@ -486,12 +530,18 @@ impl App {
                 palette.launching = true;
                 palette.note = "Validating the current definition…".into();
                 let epoch = self.palette_epoch;
+                let scope = palette.scope;
                 let (dir, repo) = (self.cfg.dir.clone(), self.cfg.repo.clone());
+                let invocation = self.cfg.invocation_dir.clone();
                 let (discover, favorites, runs, runner) =
-                    (self.cfg.discover, self.cfg.favorites.for_dir(&dir), self.runs.clone(), self.cfg.runs.clone());
+                    (self.cfg.discover, self.cfg.favorites.clone(), self.runs.clone(), self.cfg.runs.clone());
                 tea::cmd_msg(move || {
+                    let selected = dir;
+                    let dir = scope.directory(&selected, &repo);
                     let discovery = discover(&dir, &repo);
-                    let fresh = build(&dir, &repo, &discovery, &favorites, &runs, runner.as_ref());
+                    let favorites =
+                        if scope == Scope::Workspace { favorites.for_tree(&dir) } else { favorites.for_dir(&selected) };
+                    let fresh = build(&dir, &repo, &invocation, &discovery, &favorites, &runs, runner.as_ref());
                     match fresh.prepare(&entry.id, Some(&entry.fingerprint), &Inputs::default()) {
                         Ok(prepared) => {
                             let (run, error) = runner.start_with_shell(
@@ -514,6 +564,7 @@ impl App {
                                 warning,
                                 fresh: Some(fresh),
                                 discovery: Some(discovery),
+                                scope,
                             }
                         }
                         Err(error) => Launched {
@@ -523,6 +574,7 @@ impl App {
                             warning: None,
                             fresh: Some(fresh),
                             discovery: Some(discovery),
+                            scope,
                         },
                     }
                 })
@@ -542,7 +594,16 @@ impl App {
         self.discovery_busy = false;
         self.discovery_queued = false;
         if let Some(discovery) = message.discovery {
-            self.set_discovery(discovery);
+            if message.scope == Scope::Project {
+                self.set_discovery(discovery);
+            } else if let Some(palette) = &mut self.palette {
+                let root = message
+                    .fresh
+                    .as_ref()
+                    .and_then(|snapshot| snapshot.entries().first())
+                    .map(|entry| entry.project_directory.clone());
+                palette.workspace_discovery = root.map(|root| (root, Arc::new(discovery)));
+            }
         }
         if let Some(error) = message.error {
             if let Some(palette) = &mut self.palette {

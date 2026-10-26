@@ -42,6 +42,7 @@ Usage:
   runui find [-C DIR] [--mode commands|recent|all] [--json] [QUERY]
   runui inspect [-C DIR] [--json] ID  inspect a command and its fingerprint
   runui run [-C DIR] [--json] [--fingerprint VALUE] ID -- [ARGS...]
+  Catalog commands accept --scope project|workspace (default: project).
 
 Flags:
   -C DIR  the folder (default: this one, or the project above it with a
@@ -123,7 +124,7 @@ fn dispatch(
     let abs = filepath::abs(&dir).map_err(anyhow::Error::from)?;
     let home = filepath::user_home_dir().unwrap_or_default();
     let dir = project::root(&abs, &home);
-    let w = Workspace { repo: project::repo_root(&dir), dir, home };
+    let w = Workspace { repo: project::context_root(&dir, &home), dir, home, invocation_dir: abs };
     match cmd {
         "" => open(canceled, &w, stderr)?,
         "list" => list(&w, stdout)?,
@@ -189,22 +190,29 @@ struct Workspace {
     dir: String,
     repo: String,
     home: String,
+    invocation_dir: String,
 }
 
 impl Workspace {
-    fn catalog(&self) -> Result<runui_catalog::Snapshot> {
+    fn catalog_scoped(&self, scope: runui_catalog::Scope) -> Result<runui_catalog::Snapshot> {
         let store = self.runs()?;
         let usage_store = runui_catalog::usage::Store::for_runs(&store.root);
         let observed = store.list()?;
         let _ = usage_store.reconcile(&observed);
         let usage = usage_store.load();
-        let mut context = runui_catalog::Context::new(&self.dir, &self.repo);
+        let directory = scope.directory(&self.dir, &self.repo);
+        let mut context = runui_catalog::Context::new(&directory, &self.repo);
+        context.invocation_dir = runui_catalog::canonical(&self.invocation_dir);
         context.environment = context.environment.with_shell(&store.shell);
         let default_usage = runui_catalog::usage::Data::default();
         let mut snapshot = runui_catalog::Snapshot::build(
             &context,
-            &project::discover(&self.dir, &self.repo),
-            &self.favorites()?.for_dir(&self.dir),
+            &project::discover(&directory, &self.repo),
+            &if scope == runui_catalog::Scope::Workspace {
+                self.favorites()?.for_tree(&directory)
+            } else {
+                self.favorites()?.for_dir(&self.dir)
+            },
             &observed,
             usage.as_ref().unwrap_or(&default_usage),
         );
@@ -241,7 +249,8 @@ impl Workspace {
 fn open(canceled: &Arc<AtomicBool>, w: &Workspace, stderr: &mut dyn Write) -> Result<()> {
     let favs = w.favorites()?;
     let store = w.runs()?;
-    let cfg = tui::Config::new(&w.dir, &w.repo, &w.home, favs, Arc::new(store));
+    let mut cfg = tui::Config::new(&w.dir, &w.repo, &w.home, favs, Arc::new(store));
+    cfg.invocation_dir = w.invocation_dir.clone();
     let model = Program::new(tui::Model::new(cfg)).with_cancel(canceled.clone()).run()?;
     let live = model.live();
     if !live.is_empty() {

@@ -95,6 +95,8 @@ impl Runner for runs::Store {
 pub struct Config {
     /// the folder: the project runui was opened in
     pub dir: String,
+    /// Where runui was invoked, used for proximity without changing execution cwd.
+    pub invocation_dir: String,
     /// its repository's root, where package.json's lock files are looked for up to
     pub repo: String,
     /// the home folder, written ~
@@ -112,6 +114,7 @@ impl Config {
     pub fn new(dir: &str, repo: &str, home: &str, favorites: Favorites, runs: Arc<dyn Runner>) -> Config {
         Config {
             dir: dir.to_string(),
+            invocation_dir: dir.to_string(),
             repo: repo.to_string(),
             home: home.to_string(),
             favorites,

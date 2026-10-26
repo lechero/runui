@@ -377,3 +377,36 @@ fn catalog_raw_favorite_arguments_remain_literal() {
     }
     assert!(!std::path::Path::new(&s.dir).join("NEVER").exists());
 }
+
+#[test]
+fn workspace_scope_finds_deep_siblings_and_keeps_their_launch_context() {
+    let s = sandbox();
+    fs::write(filepath::join(&[&s.dir, "package.json"]), r#"{"workspaces":["packages/**"]}"#).unwrap();
+    let web = filepath::join(&[&s.dir, "packages/web"]);
+    let engine = filepath::join(&[&s.dir, "packages/a/b/engine"]);
+    for directory in [&web, &engine] {
+        fs::create_dir_all(directory).unwrap();
+        fs::write(filepath::join(&[directory, "package.json"]), "{}").unwrap();
+    }
+    fs::write(filepath::join(&[&engine, "Makefile"]), "check:\n\t@pwd > cwd.txt\n").unwrap();
+    let (code, out, error) = s.run(&["commands", "-C", &web, "--query", "source:make check", "--json"]);
+    assert_eq!(code, EXIT_OK, "{error}");
+    assert_eq!(serde_json::from_str::<serde_json::Value>(&out).unwrap()["commands"], serde_json::json!([]));
+    let (code, out, error) =
+        s.run(&["commands", "-C", &web, "--scope", "workspace", "--query", "source:make check", "--json"]);
+    assert_eq!(code, EXIT_OK, "{error}");
+    let page: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(page["scope"], "workspace");
+    let id = page["commands"][0]["id"].as_str().unwrap();
+    assert_eq!(s.run(&["inspect", "-C", &web, id]).0, EXIT_FAILURE);
+    assert_eq!(s.run(&["inspect", "-C", &web, "--scope", "workspace", id]).0, EXIT_OK);
+    let (code, _, error) = s.run(&["run", "-C", &web, "--scope", "workspace", id, "--json"]);
+    assert_eq!(code, EXIT_OK, "{error}");
+    let path = std::path::Path::new(&engine).join("cwd.txt");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while !path.exists() {
+        assert!(std::time::Instant::now() < deadline);
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    assert!(runui_catalog::same_directory(fs::read_to_string(path).unwrap().trim(), &engine));
+}

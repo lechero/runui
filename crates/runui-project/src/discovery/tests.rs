@@ -234,11 +234,27 @@ fn the_folder_budget_is_global_and_includes_the_root() {
         }
     }
     let mut scan = Scan::new(&dir);
-    let folders = folders(&dir, true, &mut scan);
+    let mut ignores = crate::workspace::IgnoreRules::new(&dir, &mut scan);
+    let folders = folders(&dir, true, None, false, &mut ignores, &mut scan);
     assert_eq!(folders.len(), MAX_FOLDERS);
-    assert_eq!(scan.dependencies.len(), MAX_FOLDERS);
+    assert_eq!(scan.visited_folders.len(), MAX_FOLDERS);
+    assert!(scan.dependencies.len() <= MAX_FOLDERS * 4);
     assert_eq!(scan.diagnostics.len(), 1);
     assert!(scan.diagnostics[0].message.contains("folder limit"));
+    write(&dir, "package.json", r#"{"workspaces":["**"]}"#);
+    let mut scan = Scan::new(&dir);
+    let members = crate::workspace::declaration(&dir, &mut scan).unwrap();
+    let mut ignores = crate::workspace::IgnoreRules::new(&dir, &mut scan);
+    let mut selected = self::folders(&dir, true, Some(&members), true, &mut ignores, &mut scan);
+    selected.extend(self::folders(&dir, true, Some(&members), false, &mut ignores, &mut scan));
+    let paths: HashSet<_> = selected.iter().map(|folder| &folder.path).collect();
+    assert_eq!(paths.len(), MAX_FOLDERS, "declared and incidental scans share one folder budget");
+    assert_eq!(scan.visited_folders.len(), MAX_FOLDERS);
+    write(&dir, "package.json", r#"{"workspaces":["**", "!one", "!two"]}"#);
+    assert!(
+        !discover(&dir, &dir).diagnostics.iter().any(|problem| problem.message.contains("folder limit")),
+        "excluded subtrees do not consume the shared budget"
+    );
 }
 
 #[test]

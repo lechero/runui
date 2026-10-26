@@ -128,6 +128,21 @@ fn lock_manager(dir: &str, stop: &str, scan: &mut crate::discovery::Scan) -> Str
     let stop = filepath::clean(stop);
     let mut d = filepath::clean(dir);
     loop {
+        let package = filepath::join(&[&d, "package.json"]);
+        scan.watch(&package);
+        if is_file(&package)
+            && let Ok(data) = scan.read(&package)
+            && let Ok(value) = serde_json::from_slice::<serde_json::Value>(&data)
+            && let Some(manager) = value.get("packageManager").and_then(|value| value.as_str())
+            && !manager_name(manager).is_empty()
+        {
+            return manager_name(manager).into();
+        }
+        let pnpm = filepath::join(&[&d, "pnpm-workspace.yaml"]);
+        scan.watch(&pnpm);
+        if is_file(&pnpm) {
+            return "pnpm".into();
+        }
         for (file, manager) in LOCK_FILES {
             let path = filepath::join(&[&d, file]);
             scan.watch(&path);

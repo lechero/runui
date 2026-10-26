@@ -58,7 +58,7 @@ impl Favorite {
 
 /// Store is the favorites file. Every change reads the file again first,
 /// so two runuis open at once don't undo each other's.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Store {
     file: String,
     folders: BTreeMap<String, Vec<Favorite>>,
@@ -97,6 +97,29 @@ impl Store {
     /// for_dir is a folder's favorites in their order (Go's `For`).
     pub fn for_dir(&self, dir: &str) -> Vec<Favorite> {
         self.folders.get(&key(dir)).cloned().unwrap_or_default()
+    }
+
+    /// Project workspace search projects saved commands into absolute execution
+    /// directories without changing their original folder keys or ordering.
+    pub fn for_tree(&self, dir: &str) -> Vec<Favorite> {
+        let physical = |path: &Path| path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+        let root = physical(Path::new(dir));
+        let mut out = Vec::new();
+        for (folder, favorites) in &self.folders {
+            if !physical(Path::new(folder)).starts_with(&root) {
+                continue;
+            }
+            for favorite in favorites {
+                let directory = physical(&Path::new(folder).join(&favorite.dir));
+                if !directory.starts_with(&root) {
+                    continue;
+                }
+                let mut projected = favorite.clone();
+                projected.dir = directory.to_string_lossy().into_owned();
+                out.push(projected);
+            }
+        }
+        out
     }
 
     /// has says a folder has a command, run where f says, among its

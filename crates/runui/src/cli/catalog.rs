@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use std::io::Write;
 
 use anyhow::anyhow;
-use runui_catalog::{Inputs, Kind, Query};
+use runui_catalog::{Inputs, Kind, Query, Scope};
 use runui_core::golang::filepath;
 use serde_json::json;
 
@@ -22,6 +22,7 @@ struct Options {
     args: Vec<String>,
     variables: BTreeMap<String, String>,
     positional: Vec<String>,
+    scope: Scope,
 }
 
 fn parse(command: &str, args: &[String]) -> Result<Options, Failure> {
@@ -57,7 +58,7 @@ fn parse(command: &str, args: &[String]) -> Result<Options, Failure> {
             return Err(Failure::Usage(format!("unknown catalog option {name}")));
         }
         let applicable = match name {
-            "--query" | "--mode" | "--limit" | "--offset" | "--scope" => matches!(command, "commands" | "find"),
+            "--query" | "--mode" | "--limit" | "--offset" => matches!(command, "commands" | "find"),
             "--fingerprint" | "--var" => command == "run",
             _ => true,
         };
@@ -87,7 +88,8 @@ fn parse(command: &str, args: &[String]) -> Result<Options, Failure> {
                 result.offset =
                     value.parse().map_err(|_| Failure::Usage("--offset needs a non-negative integer".into()))?
             }
-            "--scope" if value == "project" => {}
+            "--scope" if value == "project" => result.scope = Scope::Project,
+            "--scope" if value == "workspace" => result.scope = Scope::Workspace,
             "--scope" => return Err(Failure::Usage(format!("scope {value:?} is not available yet"))),
             "--var" => {
                 let (name, value) =
@@ -111,13 +113,13 @@ fn workspace(directory: Option<&str>) -> anyhow::Result<Workspace> {
     let absolute = filepath::abs(&directory).map_err(anyhow::Error::from)?;
     let home = filepath::user_home_dir().unwrap_or_default();
     let dir = runui_project::root(&absolute, &home);
-    Ok(Workspace { repo: runui_project::repo_root(&dir), dir, home })
+    Ok(Workspace { repo: runui_project::context_root(&dir, &home), dir, home, invocation_dir: absolute })
 }
 
 pub(super) fn dispatch(command: &str, args: &[String], output: &mut dyn Write) -> Result<(), Failure> {
     let options = parse(command, args)?;
     let workspace = workspace(options.directory.as_deref())?;
-    let snapshot = workspace.catalog()?;
+    let snapshot = workspace.catalog_scoped(options.scope)?;
     match command {
         "commands" | "find" => {
             if !options.args.is_empty() || !options.variables.is_empty() || options.fingerprint.is_some() {
@@ -138,7 +140,7 @@ pub(super) fn dispatch(command: &str, args: &[String], output: &mut dyn Write) -
             let more = hits.len() > limit;
             let entries: Vec<_> = hits.iter().take(limit).map(|hit| hit.entry).collect();
             if options.json {
-                serde_json::to_writer_pretty(&mut *output,&json!({"schema_version":1,"project_directory":workspace.dir,"commands":entries,"diagnostics":snapshot.diagnostics,"complete":snapshot.diagnostics.is_empty(),"next_offset":if more {Some(options.offset+limit)} else {None}})).map_err(anyhow::Error::from)?;
+                serde_json::to_writer_pretty(&mut *output,&json!({"schema_version":1,"project_directory":workspace.dir,"scope":options.scope,"commands":entries,"diagnostics":snapshot.diagnostics,"complete":snapshot.complete(),"next_offset":if more {Some(options.offset+limit)} else {None}})).map_err(anyhow::Error::from)?;
                 writeln!(output).map_err(anyhow::Error::from)?;
             } else {
                 for entry in entries {
@@ -155,7 +157,8 @@ pub(super) fn dispatch(command: &str, args: &[String], output: &mut dyn Write) -
                 for diagnostic in &snapshot.diagnostics {
                     writeln!(
                         output,
-                        "Discovery incomplete: {}: {}",
+                        "Discovery {}: {}: {}",
+                        if diagnostic.kind == "notice" { "notice" } else { "incomplete" },
                         text_line(&diagnostic.path),
                         text_line(&diagnostic.message)
                     )

@@ -134,7 +134,7 @@ pub(crate) fn search<'a>(entries: &'a [Entry], query: &Query) -> Vec<Hit<'a>> {
             .then(b.entry.favorite.cmp(&a.entry.favorite))
             .then(b.entry.last_used.cmp(&a.entry.last_used))
             .then(b.entry.launches.cmp(&a.entry.launches))
-            .then(a.entry.relative_directory.len().cmp(&b.entry.relative_directory.len()))
+            .then(a.entry.proximity.cmp(&b.entry.proximity))
             .then(a.entry.directory.cmp(&b.entry.directory))
             .then(a.entry.name.cmp(&b.entry.name))
             .then(a.entry.id.cmp(&b.entry.id))
