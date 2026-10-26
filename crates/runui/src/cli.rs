@@ -43,6 +43,8 @@ Usage:
   runui find [-C DIR] [--mode commands|recent|all] [--json] [QUERY]
   runui inspect [-C DIR] [--json] [--native] ID  inspect a command and its fingerprint
   --native explicitly checks Composer versions or offline locked Cargo metadata.
+  Supported mise wrappers resolve installed tools in safe mode; full launch
+  environments remain unchecked. Inspection never installs missing tools.
   Search, inspect and run accept --cargo-global-aliases to include global Cargo aliases.
   runui run [-C DIR] [--json] [--fingerprint VALUE] ID -- [ARGS...]
   runui projects [add DIR|forget ID_OR_DIR] [--json]  manage explicit checkouts

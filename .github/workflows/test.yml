@@ -33,6 +33,18 @@ jobs:
         env:
           RUNUI_BIN: ${{ github.workspace }}/target/debug/runui
         run: python3 -B scripts/verify-cargo-aliases.py
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        with:
+          version: 2026.10.19
+          install: false
+          cache: false
+          env: false
+          add_shims_to_path: false
+          working_directory: ${{ runner.temp }}
+      - name: Disposable installed-tool environment contracts
+        env:
+          RUNUI_BIN: ${{ github.workspace }}/target/debug/runui
+        run: python3 -B scripts/verify-environment.py
 
   homebrew:
     name: Homebrew formula
@@ -75,3 +87,16 @@ jobs:
           RUNUI_BIN: ${{ github.workspace }}/target/debug/runui
           RUNUI_COMPOSER_PHAR: ${{ runner.temp }}/composer.phar
         run: python3 scripts/verify-composer.py
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        with:
+          version: 2026.10.19
+          install: false
+          cache: false
+          env: false
+          add_shims_to_path: false
+          working_directory: ${{ runner.temp }}
+      - name: Disposable Composer environment contracts
+        env:
+          RUNUI_BIN: ${{ github.workspace }}/target/debug/runui
+          RUNUI_COMPOSER_PHAR: ${{ runner.temp }}/composer.phar
+        run: python3 -B scripts/verify-environment.py

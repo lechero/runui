@@ -39,9 +39,10 @@ python3 -B scripts/capture-docs.py --binary bin/runui
 python3 -B scripts/capture-docs.py --binary bin/runui --only composer
 python3 -B scripts/capture-docs.py --binary bin/runui --only cargo
 python3 -B scripts/capture-docs.py --binary bin/runui --only cargo-aliases
+python3 -B scripts/capture-docs.py --binary bin/runui --only environment
 ```
 
-The Cargo tour additionally uses an already installed Rust toolchain; it never provisions one or downloads project dependencies.
+The Cargo tours additionally use an already installed Rust toolchain. The environment tour uses mise 2026.10.19 or newer, with temporary tool registrations pointing to those installed Rust binaries. It demonstrates safe inspection and missing-tool fallback without provisioning tools or downloading project dependencies.
 
 The default binary is `bin/runui`, the output of `task build`. The script works with temporary HOME/XDG directories, generated project files, and a private tmux socket. It launches real supervisors and an MCP stdio client named `docs-agent`, then stops demo processes and removes the temporary state. It never reads or clears personal runui data and needs no agent account or network connection.
 
@@ -52,6 +53,7 @@ For focused real-TUI checks, run `python3 -B scripts/verify-palette.py` and `pyt
 | `assets/tour.gif` / `.mp4` | Discover, favorite, run, reopen the same process, filter nested commands, stop, and revisit Log. |
 | `assets/cargo-tour.gif` / `.mp4`, `cargo.png` | Cargo defaults vs all members, manifest/runtime cwd, required features, explicit offline metadata, and real supervised Rust output. |
 | `assets/cargo-aliases-tour.gif` / `.mp4`, `cargo-aliases.png` | Effective project aliases, opt-in global aliases, configuration origins and a real supervised alias run. |
+| `assets/environment-tour.gif` / `.mp4`, `environment.png` | Explicit mise installed-tool inspection, its full-environment limitation, and missing-version fallback without installation. |
 | `assets/composer-tour.gif` / `.mp4`, `composer.png` | Canonical alias search, explicit lifecycle hooks, separate tool availability and bounded native checks without unread results. |
 | `assets/log-tour.gif` / `.mp4` | Local and remote failures, a successful result, individual acknowledgement, a running count left intact, and retained history. |
 | `assets/agents-tour.gif` / `.mp4` | Real MCP discovery, start, list, read, stop, disconnect/reconnect, and review of agent results. |
@@ -73,4 +75,4 @@ This regenerates browser/touch/app icons and the repository social card. The [br
 
 ## Planned discovery improvements
 
-The [research](command-discovery-research.md) and [integration plan](command-discovery-plan.md) are roadmap documents. The [implementation audit](implementation-status.md) distinguishes implemented catalog/workspace/registry/Composer/Cargo work from the remaining shell recall, environment verification, inputs and workflow contracts. The user guide documents current behavior.
+The [research](command-discovery-research.md) and [integration plan](command-discovery-plan.md) are roadmap documents. The [implementation audit](implementation-status.md) distinguishes implemented catalog/workspace/registry/Composer/Cargo and limited installed-tool inspection from the remaining shell recall, inputs and workflow contracts. The user guide documents current behavior.

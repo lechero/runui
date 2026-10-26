@@ -13,7 +13,7 @@ use runui_project::{CargoScope, CargoTarget, TargetKind};
 use runui_runs::inspection::{self, End, Limits};
 use serde::{Deserialize, Serialize};
 
-use super::{Probe, Report};
+use super::{Probe, Report, environment::NativeEnvironment};
 use crate::{Entry, canonical};
 
 #[derive(Debug, Serialize)]
@@ -197,16 +197,21 @@ fn metadata(text: &str, entry: &Entry) -> anyhow::Result<CargoMetadata> {
 
 /// Retain the proxy spelling: canonicalizing a rustup symlink and executing it
 /// as `rustup` changes argv[0] and selects the rustup CLI instead of Cargo.
-fn tool(entry: &Entry, name: &str) -> anyhow::Result<String> {
+fn tool(entry: &Entry, name: &str, environment: &NativeEnvironment) -> anyhow::Result<String> {
     let expected = entry
         .requirements
         .iter()
         .find(|requirement| requirement.program == name)
         .and_then(|requirement| requirement.resolved_path.as_deref())
         .ok_or_else(|| anyhow!("{name} is not available on PATH"))?;
-    let path = std::env::var_os("PATH").ok_or_else(|| anyhow!("PATH is unavailable"))?;
-    for dir in std::env::split_paths(&path) {
-        let candidate = Path::new(&entry.directory).join(dir).join(name);
+    let expected = canonical(expected);
+    let path = environment.path()?;
+    // A mise Rust installation can use package-manager proxy directories on
+    // PATH; inspect its actual installed tool instead of executing that proxy.
+    let selected = environment.resolve(entry, name).into_iter().map(std::path::PathBuf::from);
+    for candidate in
+        selected.chain(std::env::split_paths(&path).map(|dir| Path::new(&entry.directory).join(dir).join(name)))
+    {
         if canonical(&candidate.to_string_lossy()) != expected || !candidate.is_file() {
             continue;
         }
@@ -217,7 +222,7 @@ fn tool(entry: &Entry, name: &str) -> anyhow::Result<String> {
             "{name} is a script shim; native inspection requires an installed binary or rustup proxy"
         );
         ensure!(
-            Path::new(expected).file_name().is_none_or(|file| file != "mise"),
+            Path::new(&expected).file_name().is_none_or(|file| file != "mise"),
             "mise shims need project-wrapper verification"
         );
         return Ok(candidate.to_string_lossy().into_owned());
@@ -225,8 +230,16 @@ fn tool(entry: &Entry, name: &str) -> anyhow::Result<String> {
     Err(anyhow!("{name} changed on PATH; refresh discovery before native inspection"))
 }
 
-fn probe(entry: &Entry, name: &str, argv: Vec<String>, cancel: &AtomicBool, bytes: usize) -> Probe {
+fn probe(
+    entry: &Entry,
+    name: &str,
+    argv: Vec<String>,
+    cancel: &AtomicBool,
+    bytes: usize,
+    environment: &NativeEnvironment,
+) -> Probe {
     let mut command = Command::new(&argv[0]);
+    environment.apply(&mut command);
     command
         .args(&argv[1..])
         .current_dir(&entry.directory)
@@ -246,8 +259,14 @@ fn probe(entry: &Entry, name: &str, argv: Vec<String>, cancel: &AtomicBool, byte
 
 /// `rustup which` locates an existing tool without executing a proxy's
 /// install-on-demand path. Resolve symlink and hardlink proxies alike.
-fn installed(entry: &Entry, name: &str, report: &mut Report, cancel: &AtomicBool) -> anyhow::Result<String> {
-    let path = tool(entry, name)?;
+fn installed(
+    entry: &Entry,
+    name: &str,
+    report: &mut Report,
+    cancel: &AtomicBool,
+    environment: &NativeEnvironment,
+) -> anyhow::Result<String> {
+    let path = tool(entry, name, environment)?;
     let sibling = Path::new(&path).with_file_name("rustup");
     let proxy = canonical(&path);
     let rustup = if Path::new(&proxy).file_name().is_some_and(|name| name == "rustup") {
@@ -264,8 +283,14 @@ fn installed(entry: &Entry, name: &str, report: &mut Report, cancel: &AtomicBool
     let Some(rustup) = rustup else {
         return Ok(path);
     };
-    let checked =
-        probe(entry, &format!("rustup which {name}"), vec![rustup, "which".into(), name.into()], cancel, 64 * 1024);
+    let checked = probe(
+        entry,
+        &format!("rustup which {name}"),
+        vec![rustup, "which".into(), name.into()],
+        cancel,
+        64 * 1024,
+        environment,
+    );
     let found = checked
         .output
         .as_ref()
@@ -291,8 +316,22 @@ fn installed(entry: &Entry, name: &str, report: &mut Report, cancel: &AtomicBool
     Ok(found)
 }
 
+#[cfg(test)]
 pub(super) fn check(entry: &Entry, cancel: &AtomicBool) -> Report {
-    let mut report = Report { checked: Vec::new(), skipped: None, ready: false, cargo: None };
+    check_in(
+        entry,
+        cancel,
+        Report { checked: Vec::new(), skipped: None, ready: false, cargo: None, environment: None },
+        &NativeEnvironment::default(),
+    )
+}
+
+pub(super) fn check_in(
+    entry: &Entry,
+    cancel: &AtomicBool,
+    mut report: Report,
+    environment: &NativeEnvironment,
+) -> Report {
     let result = (|| -> anyhow::Result<()> {
         let definition = entry.cargo.as_ref().ok_or_else(|| anyhow!("Cargo entry has no static definition"))?;
         let root = definition.workspace_root.as_deref().unwrap_or(&definition.manifest_directory);
@@ -300,10 +339,11 @@ pub(super) fn check(entry: &Entry, cancel: &AtomicBool) -> Report {
             Path::new(root).join("Cargo.lock").is_file(),
             "Native Cargo inspection requires an existing Cargo.lock; static discovery was kept. Generate the lockfile deliberately before inspecting."
         );
-        let cargo = installed(entry, "cargo", &mut report, cancel)?;
-        let rustc = installed(entry, "rustc", &mut report, cancel)?;
+        let cargo = installed(entry, "cargo", &mut report, cancel, environment)?;
+        let rustc = installed(entry, "rustc", &mut report, cancel, environment)?;
         for (name, path) in [("cargo", &cargo), ("rustc", &rustc)] {
-            let mut version = probe(entry, name, vec![path.clone(), "--version".into()], cancel, 64 * 1024);
+            let mut version =
+                probe(entry, name, vec![path.clone(), "--version".into()], cancel, 64 * 1024, environment);
             version.supported &=
                 version.output.as_ref().is_some_and(|output| output.stdout.starts_with(&format!("{name} 1.")));
             let supported = version.supported;
@@ -330,7 +370,7 @@ pub(super) fn check(entry: &Entry, cancel: &AtomicBool) -> Report {
             "--config".into(),
             "build.rustc-workspace-wrapper=\"\"".into(),
         ];
-        let mut checked = probe(entry, "cargo metadata", argv, cancel, 1024 * 1024);
+        let mut checked = probe(entry, "cargo metadata", argv, cancel, 1024 * 1024, environment);
         let parsed = if checked.supported {
             metadata(&checked.output.as_ref().expect("successful probe has output").stdout, entry)
         } else {

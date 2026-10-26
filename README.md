@@ -83,7 +83,7 @@ runui run --scope registered --project PROJECT_ID COMMAND_ID --json
 
 ![Real Composer alias search, explicit hooks, and missing-tool readiness checks](docs/assets/composer-tour.gif)
 
-Composer scripts keep their native behavior and cwd. Aliases search the canonical script; exact lifecycle events stay out of ordinary results (use `kind:hook source:composer`). PHP and Composer availability appear separately. `alt+i` explicitly checks native versions, or use `runui inspect --native --json ID`; opening/searching executes nothing. Checks support Composer 2.2+ and have a five-second/64-KiB limit per tool. Project shell wrappers remain unverified until an offline inspection contract is available. [Composer settings and timeout options](docs/command-catalog.md#composer).
+Composer scripts keep their native behavior and cwd. Aliases search the canonical script; exact lifecycle events stay out of ordinary results (use `kind:hook source:composer`). PHP and Composer availability appear separately. `alt+i` explicitly checks native versions, or use `runui inspect --native --json ID`; opening/searching executes nothing. Checks support Composer 2.2+ and have a five-second/64-KiB limit per tool. Supported mise wrappers resolve installed tools in safe, offline mode; project environment expressions and hooks stay unevaluated, and the full launch environment remains unchecked. [Composer settings and timeout options](docs/command-catalog.md#composer) · [Installed-tool inspection](docs/command-catalog.md#project-environments).
 
 ![Real Cargo discovery, required features, and a supervised Rust binary](docs/assets/cargo-tour.gif)
 
