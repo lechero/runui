@@ -339,7 +339,19 @@ impl Palette {
                     ));
                 }
             }
-            lines.push("Static Cargo discovery; native enrichment is not available yet.".into());
+            let checked = self.native.as_ref().is_some_and(|(id, fingerprint, report)| {
+                id == &entry.id
+                    && fingerprint == &entry.fingerprint
+                    && report.cargo.as_ref().is_some_and(|cargo| cargo.definition_matches)
+            });
+            lines.push(
+                if checked {
+                    "Selected definition matches native Cargo metadata."
+                } else {
+                    "Static Cargo discovery · alt+i checks native metadata."
+                }
+                .into(),
+            );
         }
         if !entry.aliases.is_empty() {
             lines.push(format!(
@@ -372,11 +384,58 @@ impl Palette {
             if let Some(reason) = &report.skipped {
                 lines.push(safe(reason));
             }
+            if let Some(cargo) = &report.cargo {
+                lines.push(format!("Native workspace: {}", safe(&cargo.workspace_root)));
+                lines.push("Inspection: offline · locked · installed compiler · compiler wrappers disabled".into());
+                lines.push(format!(
+                    "{} native members · {} default members · {} selected package targets",
+                    cargo.members.len(),
+                    cargo.default_members.len(),
+                    cargo.targets.len()
+                ));
+                if !cargo.available_features.is_empty() {
+                    lines.push(format!(
+                        "Native features: {}",
+                        cargo.available_features.iter().map(|feature| safe(feature)).collect::<Vec<_>>().join(", ")
+                    ));
+                }
+                lines.push("Native default members:".into());
+                for member in cargo.default_members.iter().take(20) {
+                    lines.push(format!(
+                        "  {}",
+                        safe(
+                            &runui_core::golang::filepath::rel(&cargo.workspace_root, member)
+                                .unwrap_or_else(|| member.clone())
+                        )
+                    ));
+                }
+                if cargo.default_members.len() > 20 {
+                    lines.push("  More defaults are available in inspect --native --json.".into());
+                }
+                if !cargo.targets.is_empty() {
+                    lines.push("Native package targets:".into());
+                    for target in cargo.targets.iter().take(20) {
+                        lines.push(format!("  {} · {}", safe(&target.name), target.kind.as_str()));
+                    }
+                    if cargo.targets.len() > 20 {
+                        lines.push("  More targets are available in inspect --native --json.".into());
+                    }
+                }
+                lines.extend(cargo.diagnostics.iter().map(|message| safe(message)));
+            }
             for probe in &report.checked {
                 lines.push(format!(
                     "Native {}: {}",
                     safe(&probe.tool),
-                    if probe.supported { "version verified" } else { "unavailable or unsupported" }
+                    if !probe.supported {
+                        "unavailable or unsupported"
+                    } else if probe.tool == "cargo metadata" {
+                        "metadata verified"
+                    } else if probe.tool.starts_with("rustup which ") {
+                        "installed tool located"
+                    } else {
+                        "version verified"
+                    }
                 ));
                 if let Some(error) = &probe.error {
                     lines.push(safe(error));
@@ -390,7 +449,10 @@ impl Palette {
                     };
                     let code = output.code.map(|code| code.to_string()).unwrap_or_else(|| "signal".into());
                     lines.push(format!("{result} · exit {code} · {} ms", output.elapsed_ms));
-                    lines.extend(output.stdout.lines().chain(output.stderr.lines()).map(safe));
+                    if probe.tool != "cargo metadata" {
+                        lines.extend(output.stdout.lines().map(safe));
+                    }
+                    lines.extend(output.stderr.lines().map(safe));
                 }
             }
         }

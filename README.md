@@ -87,9 +87,9 @@ Composer scripts keep their native behavior and cwd. Aliases search the canonica
 
 ![Real Cargo discovery, required features, and a supervised Rust binary](docs/assets/cargo-tour.gif)
 
-Cargo discovery reads manifests and target layouts without running Cargo. Package, default-member, and explicit all-member actions are distinct; selecting a named target enables only its listed required features. The list identifies its manifest folder, while the preview shows the invocation cwd retained by `cargo run`. Targets and deep/nested workspace members are shared across TUI, CLI and MCP. Native enrichment and alias discovery are the next Cargo increment. [Cargo reference](docs/command-catalog.md#cargo).
+Cargo discovery reads manifests and target layouts without running Cargo. Package, default-member, and explicit all-member actions are distinct; selecting a named target enables only its listed required features. The list identifies its manifest folder, while the preview shows the invocation cwd retained by `cargo run`. `alt+i` explicitly checks offline, locked native metadata with installed tools; results stay beside the selected fingerprint, without a run or unread count. Targets and deep/nested workspace members are shared across TUI, CLI and MCP. [Cargo context and inspection limits](docs/command-catalog.md#cargo).
 
-Press `m` in a panel to star a command, or `a` to save your own named shell command. Runui notices edits to files it reads; `r` rescans, including newly added nested files. Native Cargo enrichment/aliases, shell recall, and input presets remain in the [integration plan](docs/command-discovery-plan.md).
+Press `m` in a panel to star a command, or `a` to save your own named shell command. Runui notices edits to files it reads; `r` rescans, including newly added nested files. Cargo aliases, shell recall, and input presets remain in the [integration plan](docs/command-discovery-plan.md).
 
 Declared pnpm/npm/Yarn and Cargo workspace packages can be deeper than three levels. Workspace scope searches the enclosing declaration while each command keeps its own cwd. Exclusions control package membership; `.runuiignore` uses Git-ignore syntax to exclude discovery paths, including declared members. Repository `.gitignore` files apply to incidental folders; a declared member overrides them with a notice. Nested repositories, symlinks, dependencies and generated folders stay traversal boundaries.
 
@@ -189,7 +189,7 @@ If your shell and tmux disagree, use the absolute path from `command -v runui` i
 | `/`, `esc` | Filter the current tab; clear the filter. |
 | `ctrl+p` | Open the palette; `tab` switches Commands / Recent, `alt+s` switches scope, `alt+p` opens projects. |
 | `ctrl+v`, `f2` in the palette | Scrollable command details or discovery diagnostics. |
-| `alt+i` in the palette | Explicit native Composer/PHP version checks, with limits and no unread run. |
+| `alt+i` in the palette | Explicit Composer/PHP version or Cargo metadata checks, with limits and no unread run. |
 | `enter` | Run a command; on a run, focus its output. |
 | `s` / `R` | Stop or restart a run. |
 | `m` / `a` / `e` / `D` | Star, add, edit, or remove; `D` also forgets an ended run. |

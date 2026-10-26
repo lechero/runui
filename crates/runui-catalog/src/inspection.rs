@@ -9,6 +9,9 @@ use serde::Serialize;
 
 use crate::{Entry, Kind, Recipe};
 
+mod cargo;
+pub use cargo::CargoMetadata;
+
 #[derive(Debug, Serialize)]
 pub struct Probe {
     pub tool: String,
@@ -22,15 +25,17 @@ pub struct Report {
     pub checked: Vec<Probe>,
     pub skipped: Option<String>,
     pub ready: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cargo: Option<CargoMetadata>,
 }
 
-/// Only provider-owned version probes run here. A shell wrapper may provision
+/// Only provider-owned version/metadata probes run here. A shell wrapper may provision
 /// tools or evaluate project config; until it has an offline contract we leave
 /// its availability unknown rather than silently bypassing it.
 pub fn check(entry: &Entry, cancel: &AtomicBool) -> Report {
-    let skip = |message: &str| Report { checked: Vec::new(), skipped: Some(message.into()), ready: false };
-    if entry.source != "composer" || !matches!(entry.kind, Kind::Command | Kind::Hook) {
-        return skip("Native checks currently support Composer script definitions.");
+    let skip = |message: &str| Report { checked: Vec::new(), skipped: Some(message.into()), ready: false, cargo: None };
+    if !matches!(entry.source.as_str(), "composer" | "cargo") || !matches!(entry.kind, Kind::Command | Kind::Hook) {
+        return skip("Native checks support Composer scripts and generated Cargo definitions.");
     }
     let Recipe::Tool { argv, shell, .. } = &entry.recipe else {
         return skip("No native tool recipe.");
@@ -39,6 +44,9 @@ pub fn check(entry: &Entry, cancel: &AtomicBool) -> Report {
         return skip(
             "Project shell wrapper remains unverified: native inspection does not activate wrappers or provision tools.",
         );
+    }
+    if entry.source == "cargo" {
+        return cargo::check(entry, cancel);
     }
     let Some(position) = argv.iter().position(|arg| arg == "run-script") else {
         return skip("Invalid Composer recipe.");
@@ -61,7 +69,7 @@ pub fn check(entry: &Entry, cancel: &AtomicBool) -> Report {
         .unwrap_or_else(|| "php".into());
     for (tool, args) in [("php", vec![php, "--version".into()]), ("composer", composer)] {
         if cancel.load(std::sync::atomic::Ordering::Relaxed) {
-            return Report { checked, skipped: Some("Native inspection cancelled.".into()), ready: false };
+            return Report { checked, skipped: Some("Native inspection cancelled.".into()), ready: false, cargo: None };
         }
         let mut command = Command::new(&args[0]);
         command.args(&args[1..]).current_dir(&entry.directory).env("COMPOSER_DISABLE_NETWORK", "1");
@@ -93,5 +101,5 @@ pub fn check(entry: &Entry, cancel: &AtomicBool) -> Report {
         });
         checked.push(Probe { tool: tool.into(), argv: args, output, error, supported });
     }
-    Report { ready: checked.iter().all(|probe| probe.supported), checked, skipped: None }
+    Report { ready: checked.iter().all(|probe| probe.supported), checked, skipped: None, cargo: None }
 }

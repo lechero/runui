@@ -42,6 +42,7 @@ Usage:
   runui commands [-C DIR] [--query TEXT] [--json]  search the shared catalog
   runui find [-C DIR] [--mode commands|recent|all] [--json] [QUERY]
   runui inspect [-C DIR] [--json] [--native] ID  inspect a command and its fingerprint
+  --native explicitly checks Composer versions or offline locked Cargo metadata.
   runui run [-C DIR] [--json] [--fingerprint VALUE] ID -- [ARGS...]
   runui projects [add DIR|forget ID_OR_DIR] [--json]  manage explicit checkouts
   Composer run accepts --timeout SECONDS (0 disables; default: project setting).
