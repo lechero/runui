@@ -587,6 +587,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "runui-agents"
+version = "0.1.1"
+dependencies = [
+ "anyhow",
+ "serde_json",
+ "tempfile",
+ "toml",
+]
+
+[[package]]
 name = "runui-catalog"
 version = "0.1.1"
 dependencies = [
@@ -672,6 +682,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "libc",
+ "runui-agents",
  "runui-catalog",
  "runui-core",
  "runui-favorites",

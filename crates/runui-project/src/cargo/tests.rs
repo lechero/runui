@@ -240,6 +240,7 @@ fn cargo_recognizes_this_repositories_current_crates_without_native_metadata() {
         BTreeSet::from(
             [
                 "runui",
+                "runui-agents",
                 "runui-catalog",
                 "runui-core",
                 "runui-favorites",

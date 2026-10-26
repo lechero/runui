@@ -4,8 +4,9 @@
 //! package.json, Makefile, Compose, Maven, with the ones in the folders
 //! under it, three deep) and 3 the runs (here, everywhere, and the ones
 //! agents started through runui mcp, once there are some), 4 the Log of
-//! finished runs from every folder (unread results and all history). On
-//! the right the pane shows what the row under the cursor runs and, once it
+//! finished runs from every folder (unread results and all history), 5 the
+//! agent CLIs (Claude Code, Codex, GitHub Copilot, …), enter installing
+//! runui's MCP server for one or removing it. On the right the pane shows what the row under the cursor runs and, once it
 //! has run, its output, followed as it's printed. A command runs under a
 //! supervisor of its own and keeps running once runui quits; the next
 //! runui finds it, its output and all, and stops it. Ported from
@@ -110,6 +111,8 @@ pub struct Config {
     pub registry: runui_catalog::registry::Store,
     pub index: runui_catalog::index::Index,
     pub runs: Arc<dyn Runner>,
+    /// where the agent CLIs are looked for, and the runui they're to start
+    pub agents: runui_agents::Agents,
     /// project::discover, unless a test gives its own
     pub discover: fn(&str, &str) -> Discovery,
     pub now: fn() -> DateTime<Utc>,
@@ -128,6 +131,7 @@ impl Config {
             shell_history: HistorySettings::current(home),
             registry: runui_catalog::registry::Store::beside_favorites(favorites.file()),
             index: runui_catalog::index::Index::default(),
+            agents: runui_agents::Agents::current(home),
             favorites,
             runs,
             discover: project::discover,
@@ -154,6 +158,7 @@ const PANEL_FAVORITES: usize = 0;
 const PANEL_PROJECT: usize = 1;
 const PANEL_RUNS: usize = 2;
 const PANEL_LOG: usize = 3;
+const PANEL_AGENTS: usize = 4;
 
 // The Runs panel's tabs: here, everywhere, and what agents started.
 const RUNS_EVERYWHERE: usize = 1;
@@ -220,12 +225,26 @@ struct App {
     confirm: Option<Confirm>,
     keys_shown: bool,
     ticks: i64,
+    /// the agent CLIs, as last looked at
+    clis: Vec<runui_agents::Status>,
+    /// the ones being changed, by their command: true installing
+    cli_busy: HashMap<String, bool>,
+    /// how the last change to each went
+    cli_done: HashMap<String, CliDone>,
 }
 
 /// Confirm is a question over the pane: y does it.
 struct Confirm {
     prompt: String,
-    yes: Item, // the favorite of your own to take out
+    yes: Yes,
+}
+
+/// Yes is what a question does when it's answered yes.
+enum Yes {
+    /// take a favorite of your own out
+    Unfavorite(Item),
+    /// install runui's MCP server for an agent CLI, or remove it
+    Cli { bin: String, install: bool },
 }
 
 struct TickMsg(#[allow(dead_code)] SystemTime);
@@ -247,6 +266,20 @@ struct StartedMsg {
 }
 
 struct HandoffMsg(Option<String>);
+
+/// ClisMsg is the agent CLIs looked at again, after a change to one or not.
+struct ClisMsg {
+    list: Vec<runui_agents::Status>,
+    done: Option<CliDone>,
+}
+
+/// CliDone is how an agent CLI's own command went: what it printed.
+struct CliDone {
+    bin: String,
+    install: bool,
+    result: Result<String, String>,
+    at: DateTime<Utc>,
+}
 
 struct StoppedMsg {
     run: Run,
@@ -293,6 +326,7 @@ impl Model {
                     ],
                     cur: 0,
                 },
+                Panel { name: "Agents".into(), views: vec![View::new("Agents", "no agent CLIs known")], cur: 0 },
             ],
             cur: 0,
             focus: Focus::Side,
@@ -314,8 +348,12 @@ impl Model {
             confirm: None,
             keys_shown: false,
             ticks: 0,
+            clis: Vec::new(),
+            cli_busy: HashMap::new(),
+            cli_done: HashMap::new(),
         };
         a.set_discovery((a.cfg.discover)(&a.cfg.dir, &a.cfg.repo));
+        a.set_clis(a.cfg.agents.list());
         if let Ok(list) = a.cfg.runs.list() {
             a.set_runs(list);
         }
@@ -402,6 +440,9 @@ impl App {
             }
             if self.ticks % 8 == 0 {
                 cmds.push(self.refresh_files(false));
+                if self.cur == PANEL_AGENTS {
+                    cmds.push(self.read_clis());
+                }
             }
             self.read_output();
             return tea::batch(cmds);
@@ -455,6 +496,13 @@ impl App {
                     self.say("read the project's files again", false);
                 }
                 return self.refresh_palette();
+            }
+            Err(msg) => msg,
+        };
+        let msg = match msg.downcast::<ClisMsg>() {
+            Ok(m) => {
+                self.clis_read(*m);
+                return None;
             }
             Err(msg) => msg,
         };
@@ -774,6 +822,113 @@ impl App {
         self.runs.iter().filter(|r| self.cfg.runs.pending_result(r)).count()
     }
 
+    /// set_clis gives the Agents panel its rows: every agent CLI runui
+    /// knows, the ones on the PATH first, each with the command enter runs,
+    /// which installs runui's MCP server, or removes it when it's there.
+    fn set_clis(&mut self, list: Vec<runui_agents::Status>) {
+        let agents = &self.cfg.agents;
+        let items = list
+            .iter()
+            .map(|st| {
+                let argv = if st.server.is_some() { agents.uninstall(st.spec) } else { agents.install(st.spec) };
+                Item {
+                    kind: Kind::Agent,
+                    name: st.spec.name.to_string(),
+                    command: runui_agents::line(&argv),
+                    desc: cli_state(st, &agents.runui).1.to_string(),
+                    source: st.spec.bin.to_string(),
+                    dir: self.cfg.home.clone(),
+                    ..Default::default()
+                }
+            })
+            .collect();
+        self.clis = list;
+        self.panels[PANEL_AGENTS].views[0].set(items);
+        self.sync_output();
+    }
+
+    /// cli is an agent CLI as last looked at, by its command.
+    fn cli(&self, bin: &str) -> Option<&runui_agents::Status> {
+        self.clis.iter().find(|st| st.spec.bin == bin)
+    }
+
+    /// read_clis looks at the agent CLIs again, away from the interface.
+    fn read_clis(&self) -> Cmd {
+        let agents = self.cfg.agents.clone();
+        tea::cmd_msg(move || ClisMsg { list: agents.list(), done: None })
+    }
+
+    /// clis_read takes the agent CLIs as looked at, and says how a change
+    /// to one went.
+    fn clis_read(&mut self, m: ClisMsg) {
+        if let Some(done) = m.done {
+            self.cli_busy.remove(&done.bin);
+            let name = self.cli(&done.bin).map_or(done.bin.as_str(), |st| st.spec.name).to_string();
+            match (&done.result, done.install) {
+                (Ok(_), true) => self.say(&format!("runui's MCP server is installed for {name}"), false),
+                (Ok(_), false) => self.say(&format!("runui's MCP server is removed from {name}"), false),
+                (Err(e), install) => {
+                    let what = if install { "install it for" } else { "remove it from" };
+                    let last = e.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or_default().trim().to_string();
+                    self.say(&format!("couldn't {what} {name}: {last}"), true);
+                }
+            }
+            self.cli_done.insert(done.bin.clone(), done);
+        }
+        self.set_clis(m.list);
+    }
+
+    /// ask_cli is enter on an agent CLI: a question first, then the CLI's
+    /// own command, which installs runui's MCP server, or removes it when
+    /// it's there.
+    fn ask_cli(&mut self, it: &Item) -> Cmd {
+        let st = self.cli(&it.source)?;
+        if !st.found() {
+            self.say(
+                &format!("{} isn't on your PATH: install {} first, then r looks again", st.spec.bin, it.name),
+                true,
+            );
+            return None;
+        }
+        if self.cli_busy.contains_key(&it.source) {
+            self.say(&format!("{} is being changed already", it.name), false);
+            return None;
+        }
+        let install = st.server.is_none();
+        let (title, words) = if install {
+            (
+                format!("Install runui's MCP server for {}?", S_TITLE.render(&it.name)),
+                format!(
+                    "{} then starts runui mcp in the folder it works in, and gets runui's tools for that folder's project. What it starts shows in Runs › Agents.",
+                    it.name
+                ),
+            )
+        } else {
+            (
+                format!("Remove runui's MCP server from {}?", S_TITLE.render(&it.name)),
+                "What its agents started keeps running, and stays in Runs and Log.".to_string(),
+            )
+        };
+        let prompt = format!("{title}\n\n{}\n\n{words}", S_ACCENT.render(&format!("$ {}", it.command)));
+        self.confirm = Some(Confirm { prompt, yes: Yes::Cli { bin: it.source.clone(), install } });
+        None
+    }
+
+    /// change_cli runs an agent CLI's own command that installs runui's MCP
+    /// server, or removes it, away from the interface, then looks at the
+    /// CLIs again.
+    fn change_cli(&mut self, bin: String, install: bool) -> Cmd {
+        let st = self.cli(&bin)?.clone();
+        let words = if install { "installing runui's MCP server for" } else { "removing runui's MCP server from" };
+        self.say(&format!("{words} {}…", st.spec.name), false);
+        self.cli_busy.insert(bin.clone(), install);
+        let (agents, now) = (self.cfg.agents.clone(), self.cfg.now);
+        tea::cmd_msg(move || {
+            let result = agents.change(&st, install).map_err(|e| format!("{e:#}"));
+            ClisMsg { list: agents.list(), done: Some(CliDone { bin, install, result, at: now() }) }
+        })
+    }
+
     /// shown is the view showing in the panel with the focus.
     fn shown(&self) -> &View {
         let p = &self.panels[self.cur];
@@ -806,6 +961,9 @@ impl App {
     /// the row's command.
     fn pane_run(&self) -> Option<Run> {
         let it = self.selected()?;
+        if it.kind == Kind::Agent {
+            return None;
+        }
         if it.kind == Kind::Run {
             return self.run_of(&it.run.id).cloned();
         }
@@ -1035,6 +1193,10 @@ impl App {
     fn action(&mut self, msg: &KeyPressMsg) -> Cmd {
         let k = self.keys.clone();
         let m = |b: &key::Binding| key::matches(msg, &[b]);
+        if self.selected().is_some_and(|it| it.kind == Kind::Agent) && (m(&k.restart) || m(&k.star) || m(&k.remove)) {
+            self.say("enter installs runui's MCP server for an agent CLI, or removes it", true);
+            return None;
+        }
         if m(&k.run) {
             return self.run();
         } else if m(&k.stop) {
@@ -1065,7 +1227,7 @@ impl App {
             if let Err(err) = self.cfg.favorites.reload() {
                 self.say(&err.to_string(), true);
             }
-            return tea::batch(vec![self.refresh_files(true), self.list_runs()]);
+            return tea::batch(vec![self.refresh_files(true), self.list_runs(), self.read_clis()]);
         }
         None
     }
@@ -1074,6 +1236,9 @@ impl App {
     /// run, the pane takes the keys, to scroll its output.
     fn run(&mut self) -> Cmd {
         let it = self.selected()?;
+        if it.kind == Kind::Agent {
+            return self.ask_cli(&it);
+        }
         if it.kind == Kind::Run {
             self.focus = Focus::Pane;
             return None;
@@ -1198,7 +1363,7 @@ impl App {
             S_TITLE.render(&it.name),
             S_ACCENT.render(&format!("$ {}", it.command))
         );
-        self.confirm = Some(Confirm { prompt, yes: it });
+        self.confirm = Some(Confirm { prompt, yes: Yes::Unfavorite(it) });
         None
     }
 
@@ -1234,7 +1399,7 @@ impl App {
                 self.set_runs(list);
                 self.list_runs()
             }
-            Kind::Command => {
+            Kind::Command | Kind::Agent => {
                 self.say("D removes a favorite, or a run that has ended", true);
                 None
             }
@@ -1258,7 +1423,10 @@ impl App {
     fn confirm_key(&mut self, msg: &KeyPressMsg) -> Cmd {
         if key::matches(msg, &[&self.keys.yes]) {
             let c = self.confirm.take()?;
-            return self.gone(&c.yes);
+            return match c.yes {
+                Yes::Unfavorite(it) => self.gone(&it),
+                Yes::Cli { bin, install } => self.change_cli(bin, install),
+            };
         }
         if key::matches(msg, &[&self.keys.no]) {
             self.confirm = None;
@@ -1398,6 +1566,23 @@ impl App {
                 self.sync_output();
             }
         }
+    }
+}
+
+/// cli_state is an agent CLI in a glyph and words: runui's MCP server
+/// installed for it ✓, there as another command !, not there ○, its
+/// settings unreadable ✗; blank when the CLI isn't on the PATH.
+fn cli_state(st: &runui_agents::Status, runui: &str) -> (&'static str, &'static str) {
+    if !st.found() {
+        (" ", "not installed")
+    } else if !st.err.is_empty() {
+        ("✗", "settings unreadable")
+    } else if st.current(runui) {
+        ("✓", "runui MCP")
+    } else if st.server.is_some() {
+        ("!", "other runui MCP")
+    } else {
+        ("○", "enter adds runui MCP")
     }
 }
 

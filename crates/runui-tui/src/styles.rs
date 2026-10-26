@@ -69,7 +69,7 @@ pub(crate) fn new_key_map() -> KeyMap {
         // the frame: lazygit's keys
         next_panel: b("tab/l", "next panel", &["tab", "l", "right"]),
         prev_panel: b("shift+tab/h", "previous panel", &["shift+tab", "h", "left"]),
-        panels: b("1-4", "a panel", &["1", "2", "3", "4"]),
+        panels: b("1-5", "a panel", &["1", "2", "3", "4", "5"]),
         tabs: b("[ ]", "its tabs", &["[", "]"]),
         focus_pane: b("0", "the output", &["0"]),
         scroll_pane: b("pgup/pgdn", "scroll the output", &["pgup", "pgdown", "ctrl+u", "ctrl+d", "K", "J"]),

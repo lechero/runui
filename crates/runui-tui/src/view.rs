@@ -10,7 +10,7 @@ use runui_tea::style::{self, CENTER, LEFT, TOP};
 
 use crate::rows::{Item, Kind, View};
 use crate::styles::*;
-use crate::{App, Area, Focus, Geometry, PANEL_LOG, PANEL_RUNS, RUNS_AGENTS, RUNS_EVERYWHERE};
+use crate::{App, Area, Focus, Geometry, PANEL_AGENTS, PANEL_LOG, PANEL_RUNS, RUNS_AGENTS, RUNS_EVERYWHERE};
 
 /// PORTRAIT_BELOW is how wide the window must be for the sidebar beside
 /// the pane: narrower, the panel with the focus goes on top of it.
@@ -275,7 +275,11 @@ impl App {
         let top = v.top;
         let rows: Vec<Item> = v.shown.iter().skip(top as usize).take(height as usize).cloned().collect();
         for (n, it) in rows.iter().enumerate() {
-            let row = if i == PANEL_LOG { self.log_row(it) } else { self.row(everywhere, agents, it) };
+            let row = match i {
+                PANEL_LOG => self.log_row(it),
+                PANEL_AGENTS => self.cli_row(it),
+                _ => self.row(everywhere, agents, it),
+            };
             let mut r = ansi::truncate(&row, width, "…");
             if top + n as i32 == at {
                 let style = if focused { S_ROW_ACTIVE } else { S_ROW_IDLE };
@@ -302,6 +306,26 @@ impl App {
             _ => filepath::base(&r.dir),
         };
         format!("{unread} {} {} › {}  {}", self.state_mark(r), S_DIM.render(&folder), it.name, S_DIM.render(&hint))
+    }
+
+    /// cli_row is an agent CLI as the Agents panel lists it: runui's MCP
+    /// server for it in a glyph, its name, dimmed when it isn't on the
+    /// PATH, and the server in words.
+    fn cli_row(&self, it: &Item) -> String {
+        let Some(st) = self.cli(&it.source) else { return it.name.clone() };
+        if let Some(&install) = self.cli_busy.get(&it.source) {
+            let hint = if install { "installing…" } else { "removing…" };
+            return format!("{} {}  {}", S_WARN.render("◌"), it.name, S_DIM.render(hint));
+        }
+        let (mark, hint) = crate::cli_state(st, &self.cfg.agents.runui);
+        let mark = match mark {
+            "✓" => S_GOOD.render(mark),
+            "!" => S_WARN.render(mark),
+            "✗" => S_BAD.render(mark),
+            _ => S_DIM.render(mark),
+        };
+        let name = if st.found() { it.name.clone() } else { S_DIM.render(&it.name) };
+        format!("{mark} {name}  {}", S_DIM.render(hint))
     }
 
     /// row is an item as its panel lists it: the state of its last run, a ★
@@ -344,6 +368,7 @@ impl App {
                 }
                 format!("{mark} {place}{}  {}", it.name, S_DIM.render(&hint))
             }
+            Kind::Agent => self.cli_row(it),
         }
     }
 
@@ -444,6 +469,9 @@ impl App {
             None => {}
         }
         let Some(it) = self.selected() else { return "runui".into() };
+        if it.kind == Kind::Agent {
+            return format!("{} › runui MCP", it.name);
+        }
         if self.pane_run().is_some() {
             return format!("{} › output", it.name);
         }
@@ -500,6 +528,9 @@ impl App {
             }
             return self.overview();
         };
+        if it.kind == Kind::Agent {
+            return self.cli_lines(&it);
+        }
         let mut name = S_TITLE.render(&it.name);
         if !it.place.is_empty() && it.kind != Kind::Run {
             name = S_DIM.render(&format!("{} › ", it.place)) + &name;
@@ -532,6 +563,67 @@ impl App {
             lines[last] += &S_DIM.render(" · enter runs it again");
         }
         lines.push(S_LINE.render(&"─".repeat(self.pw.max(0) as usize)));
+        lines
+    }
+
+    /// cli_lines are the pane on an agent CLI: where it and its settings
+    /// are, runui's MCP server there, what enter does, and how the last
+    /// change went, with what the CLI printed.
+    fn cli_lines(&self, it: &Item) -> Vec<String> {
+        let mut lines = vec![S_TITLE.render(&it.name)];
+        let Some(st) = self.cli(&it.source) else { return lines };
+        let settings = self.short(&st.file.to_string_lossy());
+        if !st.found() {
+            lines.push(S_DIM.render(&format!("{} isn't on your PATH · its settings: {settings}", st.spec.bin)));
+            lines.push(String::new());
+            if let Some(server) = &st.server {
+                lines.push(S_WARN.render(&format!("! its settings still start runui: {}", server.line())));
+            }
+            lines.push(S_DIM.render(&format!(
+                "Install {}, then r looks again: enter installs runui's MCP server for it.",
+                it.name
+            )));
+            return lines;
+        }
+        lines.push(S_ACCENT.render(&format!("$ {}", it.command)));
+        lines.push(S_DIM.render(&format!("{} at {} · its settings: {settings}", st.spec.bin, self.short(&st.bin))));
+        lines.push(String::new());
+        if !st.err.is_empty() {
+            lines.push(S_BAD.render(&format!("✗ {}", st.err)));
+        }
+        let busy = self.cli_busy.get(&it.source);
+        match &st.server {
+            Some(server) if st.current(&self.cfg.agents.runui) => {
+                lines.push(
+                    S_GOOD.render("✓ runui's MCP server is installed") + &S_DIM.render(&format!(": {}", server.line())),
+                );
+            }
+            Some(server) => {
+                lines.push(S_WARN.render(&format!("! runui is there as another command: {}", server.line())));
+                lines.push(S_DIM.render("enter takes it out; enter again then installs runui mcp, for every folder"));
+            }
+            None => lines.push(S_DIM.render("○ runui's MCP server isn't installed")),
+        }
+        lines.push(S_DIM.render(&format!("{} starts runui mcp in the folder it works in, and gets runui's", it.name)));
+        lines.push(S_DIM.render("tools for that folder's project; what it starts shows in Runs › Agents."));
+        lines.push(String::new());
+        lines.push(match busy {
+            Some(true) => S_WARN.render("◌ installing…"),
+            Some(false) => S_WARN.render("◌ removing…"),
+            None if st.server.is_some() => S_DIM.render("enter removes it · y copies the command · r looks again"),
+            None => S_DIM.render("enter installs it · y copies the command · r looks again"),
+        });
+        if let Some(done) = self.cli_done.get(&it.source) {
+            let at = when(done.at, (self.cfg.now)());
+            let (did, what) = if done.install { ("installed", "install") } else { ("removed", "remove") };
+            let (head, text) = match &done.result {
+                Ok(text) => (S_GOOD.render(&format!("✓ {did} · {at}")), text),
+                Err(text) => (S_BAD.render(&format!("✗ couldn't {what} it · {at}")), text),
+            };
+            lines.push(String::new());
+            lines.push(head);
+            lines.extend(text.lines().take(20).map(|l| S_DIM.render(&format!("  {l}"))));
+        }
         lines
     }
 
@@ -604,7 +696,7 @@ impl App {
         }
         lines.push(String::new());
         lines
-            .push(S_DIM.render("a adds a command of your own; tab and 1-4 go from panel to panel; ? shows every key."));
+            .push(S_DIM.render("a adds a command of your own; tab and 1-5 go from panel to panel; ? shows every key."));
         lines
     }
 
@@ -653,7 +745,7 @@ impl App {
             "Moving about",
             &[
                 (format!("{} {}", h(&k.next_panel), h(&k.prev_panel)), "the next and the previous panel"),
-                (h(&k.panels), "a panel: 1 Favorites, 2 the project's commands, 3 Runs, 4 Log"),
+                (h(&k.panels), "a panel: 1 Favorites, 2 the project's commands, 3 Runs, 4 Log, 5 Agents"),
                 (h(&k.tabs), tabs),
                 ("↑/k ↓/j g G".into(), "along its rows"),
                 (h(&k.filter), "filter its rows by what you type; esc clears it"),
@@ -683,6 +775,7 @@ impl App {
                 (format!("{} {}", h(&k.move_up), h(&k.move_down)), "move a favorite up or down"),
                 (h(&k.yank), "copy the command"),
                 (h(&k.reload), "read the project's files again (runui notices an edit on its own too)"),
+                ("enter in Agents".into(), "install runui's MCP server for an agent CLI, or remove it, asking first"),
             ],
         ));
         lines.extend(group(
@@ -735,6 +828,21 @@ impl App {
                 k.stop.clone(),
                 k.restart.clone(),
                 bind("esc", "back"),
+                k.help.clone(),
+                k.quit.clone(),
+            ]);
+        }
+        if self.cur == PANEL_AGENTS {
+            let enter = match self.selected() {
+                Some(it) if self.cli(&it.source).is_some_and(|st| st.server.is_some()) => "remove runui MCP",
+                _ => "install runui MCP",
+            };
+            return KeyHelp::short(vec![
+                bind("enter", enter),
+                b("y", "copy the command", &["y"]),
+                b("r", "look again", &["r"]),
+                k.filter.clone(),
+                k.next_panel.clone(),
                 k.help.clone(),
                 k.quit.clone(),
             ]);
