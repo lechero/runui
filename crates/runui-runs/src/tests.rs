@@ -81,7 +81,11 @@ fn a_run_is_stopped_from_another_store() {
     let s = new_store(&root);
     let (_d, dir) = tempdir();
     let r = start(&s, &dir, "serve", r#"echo "in $(pwd)"; echo oops >&2; echo ready; sleep 30"#);
-    let r = wait_for(&s, &r.id, "printing", printed("ready"));
+    // Output and run metadata are published independently. Observe both before
+    // asserting that the supervisor has recorded the process identities.
+    let r = wait_for(&s, &r.id, "running and printing", |r| {
+        r.state() == State::Running && r.pid != 0 && r.supervisor != 0 && printed("ready")(r)
+    });
     assert!(
         r.state() == State::Running && r.pid != 0 && r.supervisor != 0 && r.label() == "serve",
         "got {r:?} in state {:?}",

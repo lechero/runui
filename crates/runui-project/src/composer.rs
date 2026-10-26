@@ -206,6 +206,7 @@ fn read(path: &str, dir: &str, stop: &str, phar: Option<&str>, scan: &mut Scan) 
             hook: EVENTS.contains(&name.as_str()),
             requirements: requirements.clone(),
             cargo: None,
+            cargo_alias: None,
         });
     }
     for key in aliases.keys() {

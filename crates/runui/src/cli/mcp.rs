@@ -143,7 +143,7 @@ fn tools() -> Vec<Value> {
             "name": "list_commands",
             "description": "Search a bounded page of the shared command catalog and saved favorites. IDs, fingerprints, provenance and exact working directories can be used with start_run. Personal shell history is never included.",
             "inputSchema": {"type": "object", "properties": {
-                "query": {"type":"string"}, "limit":{"type":"integer","minimum":1,"maximum":500,"default":200}, "offset":{"type":"integer","minimum":0,"default":0}, "scope":{"type":"string","enum":["project","workspace","registered"],"default":"project"}
+                "query": {"type":"string"}, "limit":{"type":"integer","minimum":1,"maximum":500,"default":200}, "offset":{"type":"integer","minimum":0,"default":0}, "scope":{"type":"string","enum":["project","workspace","registered"],"default":"project"}, "cargo_global_aliases":{"type":"boolean","default":false,"description":"Explicitly include global/environment-only Cargo aliases in each selected invocation context."}
             }, "additionalProperties": false},
             "annotations": {"readOnlyHint": true}
         }),
@@ -153,6 +153,7 @@ fn tools() -> Vec<Value> {
             "inputSchema": {"type": "object", "properties": {
                 "command": {"type": "string", "description": "The exact raw shell command; mutually exclusive with id."},
                 "id": {"type":"string","description":"Command catalog ID from list_commands; resolved again before launch."},
+                "cargo_global_aliases":{"type":"boolean","default":false,"description":"Use the same explicit global Cargo alias context as discovery; requires id."},
                 "project": {"type":"string","description":"registry_id returned by registered discovery; required with a registered id launch."},
                 "fingerprint": {"type":"string","description":"Expected definition fingerprint; stale selections fail before launch."},
                 "scope": {"type":"string","enum":["project","workspace","registered"],"default":"project","description":"Catalog scope used to resolve an id; raw commands use project context."},
@@ -196,6 +197,8 @@ fn tools() -> Vec<Value> {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct StartArgs {
+    #[serde(default)]
+    cargo_global_aliases: bool,
     #[serde(default)]
     project: Option<String>,
     #[serde(default)]
@@ -267,6 +270,8 @@ fn call(w: &Workspace, agent: &str, name: &str, args: Value) -> Result<Value> {
 #[serde(deny_unknown_fields)]
 struct CatalogArgs {
     #[serde(default)]
+    cargo_global_aliases: bool,
+    #[serde(default)]
     scope: runui_catalog::Scope,
     #[serde(default)]
     query: String,
@@ -281,7 +286,7 @@ fn list_commands(w: &Workspace, args: CatalogArgs) -> Result<Value> {
     if !(1..=500).contains(&limit) {
         return Err(anyhow!("limit must be between 1 and 500"));
     }
-    let snapshot = w.catalog_scoped(args.scope)?;
+    let snapshot = w.catalog_scoped(args.scope, args.cargo_global_aliases)?;
     let mut query = runui_catalog::Query::parse(&args.query).map_err(|error| anyhow!(error))?;
     query.commands();
     query.limit = limit + 1;
@@ -314,7 +319,7 @@ fn list_commands(w: &Workspace, args: CatalogArgs) -> Result<Value> {
         .map(|problem| json!({"file":problem.path,"source":problem.source,"message":problem.message,"kind":problem.kind}))
         .collect();
     Ok(
-        json!({"schema_version":1,"project_directory":w.dir,"scope":args.scope,"commands":commands,"errors":errors,"complete":snapshot.complete(),"diagnostics":diagnostics,"next_offset":if more {Some(args.offset+limit)} else {None}}),
+        json!({"schema_version":1,"project_directory":w.dir,"scope":args.scope,"cargo_global_aliases":args.cargo_global_aliases,"commands":commands,"errors":errors,"complete":snapshot.complete(),"diagnostics":diagnostics,"next_offset":if more {Some(args.offset+limit)} else {None}}),
     )
 }
 
@@ -324,13 +329,13 @@ fn start_run(w: &Workspace, agent: &str, args: StartArgs) -> Result<Value> {
         if args.command.is_some() || args.directory.is_some() {
             return Err(anyhow!("id cannot be combined with command or directory"));
         }
-        Some(w.catalog_selection(args.scope, args.project.as_deref())?.prepare(
+        Some(w.catalog_selection(args.scope, args.project.as_deref(), args.cargo_global_aliases)?.prepare(
             id,
             args.fingerprint.as_deref(),
             &args.inputs,
         )?)
     } else {
-        if args.scope != runui_catalog::Scope::Project || args.project.is_some() {
+        if args.scope != runui_catalog::Scope::Project || args.project.is_some() || args.cargo_global_aliases {
             return Err(anyhow!("scope applies to catalog id launches; raw commands use project context"));
         }
         if args.fingerprint.is_some() || args.inputs != runui_catalog::Inputs::default() {

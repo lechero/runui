@@ -26,6 +26,7 @@ struct Options {
     project: Option<String>,
     timeout_seconds: Option<u32>,
     native: bool,
+    cargo_global_aliases: bool,
 }
 
 fn parse(command: &str, args: &[String]) -> Result<Options, Failure> {
@@ -43,6 +44,10 @@ fn parse(command: &str, args: &[String]) -> Result<Options, Failure> {
         }
         if arg == "--native" && command == "inspect" {
             result.native = true;
+            continue;
+        }
+        if arg == "--cargo-global-aliases" {
+            result.cargo_global_aliases = true;
             continue;
         }
         if arg == "--json" {
@@ -163,9 +168,9 @@ pub(super) fn dispatch(
     let options = parse(command, args)?;
     let workspace = workspace(options.directory.as_deref())?;
     let snapshot = if matches!(command, "inspect" | "run") {
-        workspace.catalog_selection(options.scope, options.project.as_deref())?
+        workspace.catalog_selection(options.scope, options.project.as_deref(), options.cargo_global_aliases)?
     } else {
-        workspace.catalog_scoped(options.scope)?
+        workspace.catalog_scoped(options.scope, options.cargo_global_aliases)?
     };
     match command {
         "commands" | "find" => {
@@ -190,7 +195,7 @@ pub(super) fn dispatch(
             let more = hits.len() > limit;
             let entries: Vec<_> = hits.iter().take(limit).map(|hit| hit.entry).collect();
             if options.json {
-                serde_json::to_writer_pretty(&mut *output,&json!({"schema_version":1,"project_directory":workspace.dir,"scope":options.scope,"commands":entries,"diagnostics":snapshot.diagnostics,"complete":snapshot.complete(),"next_offset":if more {Some(options.offset+limit)} else {None}})).map_err(anyhow::Error::from)?;
+                serde_json::to_writer_pretty(&mut *output,&json!({"schema_version":1,"project_directory":workspace.dir,"scope":options.scope,"cargo_global_aliases":options.cargo_global_aliases,"commands":entries,"diagnostics":snapshot.diagnostics,"complete":snapshot.complete(),"next_offset":if more {Some(options.offset+limit)} else {None}})).map_err(anyhow::Error::from)?;
                 writeln!(output).map_err(anyhow::Error::from)?;
             } else {
                 for entry in entries {
@@ -236,7 +241,7 @@ pub(super) fn dispatch(
                     serde_json::to_writer_pretty(&mut *output, &value).map_err(anyhow::Error::from)?;
                     writeln!(output).map_err(anyhow::Error::from)?;
                 } else {
-                    writeln!(output,"{}\n{}\n$ {}\ncwd: {}\nsource: {}\nentry: {}\ndefinition: {}\nfingerprint: {}\navailability: {}",entry.id,text_line(&entry.name),text_line(&entry.command),text_line(&entry.directory),entry.source,entry.entry_file.as_deref().unwrap_or("saved command"),entry.defining_file.as_deref().unwrap_or("saved command"),entry.fingerprint,entry.availability.label()).map_err(anyhow::Error::from)?;
+                    writeln!(output,"{}\n{}\n$ {}\ncwd: {}\nsource: {}\nentry: {}\ndefinition: {}\nfingerprint: {}\navailability: {}",entry.id,text_line(&entry.name),text_line(&entry.command),text_line(&entry.directory),entry.source,text_line(entry.entry_file.as_deref().unwrap_or("saved command")),text_line(entry.defining_file.as_deref().unwrap_or("saved command")),entry.fingerprint,entry.availability.label()).map_err(anyhow::Error::from)?;
                     if let Some(report) = &native {
                         writeln!(
                             output,

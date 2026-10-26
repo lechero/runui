@@ -19,6 +19,15 @@ use crate::{File, MAX_DEPTH, MAX_FILES, MAX_FOLDERS, SKIPPED, Source, first_file
 const MAX_SOURCE_BYTES: usize = 2 * 1024 * 1024;
 const MAX_TOTAL_BYTES: usize = 16 * 1024 * 1024;
 
+#[derive(Clone, Copy)]
+struct ReadLimits {
+    files: usize,
+    per_file: usize,
+    total: usize,
+    file_message: &'static str,
+    total_message: &'static str,
+}
+
 /// Diagnostic explains why discovery could not inspect every definition.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
@@ -100,6 +109,7 @@ pub(crate) struct Scan {
     contents: HashMap<String, Arc<[u8]>>,
     rejected: HashMap<String, String>,
     bytes_read: usize,
+    limits: ReadLimits,
     pub(crate) diagnostics: Vec<Diagnostic>,
     notices: Vec<Diagnostic>,
     visited_folders: HashSet<String>,
@@ -110,6 +120,32 @@ pub(crate) struct Scan {
 
 impl Scan {
     pub(crate) fn new(root: &str) -> Self {
+        Self::with_limits(
+            root,
+            ReadLimits {
+                files: MAX_FILES,
+                per_file: MAX_SOURCE_BYTES,
+                total: MAX_TOTAL_BYTES,
+                file_message: "source exceeds the 2-MiB file limit",
+                total_message: "discovery stopped at the 16-MiB source-byte limit",
+            },
+        )
+    }
+
+    pub(crate) fn cargo_aliases(root: &str) -> Self {
+        Self::with_limits(
+            root,
+            ReadLimits {
+                files: 64,
+                per_file: 64 * 1024,
+                total: 1024 * 1024,
+                file_message: "Cargo alias config exceeds the 64-KiB file limit",
+                total_message: "Cargo alias config reached the 1-MiB total byte limit",
+            },
+        )
+    }
+
+    fn with_limits(root: &str, limits: ReadLimits) -> Self {
         Self {
             root: root.into(),
             dependencies: BTreeMap::new(),
@@ -117,6 +153,7 @@ impl Scan {
             contents: HashMap::new(),
             rejected: HashMap::new(),
             bytes_read: 0,
+            limits,
             diagnostics: Vec::new(),
             notices: Vec::new(),
             visited_folders: HashSet::new(),
@@ -134,14 +171,24 @@ impl Scan {
         if let Some(current) = &mut self.current_dependencies {
             current.insert(path.clone());
         }
+        self.observe(&path);
+    }
+
+    /// Appearance/precedence candidates trigger refresh without making an
+    /// ignored configuration's contents part of the prepared definition.
+    pub(crate) fn observe(&mut self, path: &str) {
+        if self.cancelled() {
+            return;
+        }
+        let path = filepath::clean(path);
         self.dependencies.entry(path.clone()).or_insert_with(|| stamp(&path));
     }
 
-    fn begin_definition(&mut self) {
+    pub(crate) fn begin_definition(&mut self) {
         self.current_dependencies = Some(HashSet::new());
     }
 
-    fn definition_fingerprint(&mut self) -> String {
+    pub(crate) fn definition_fingerprint(&mut self) -> String {
         let mut paths: Vec<_> = self.current_dependencies.take().unwrap_or_default().into_iter().collect();
         paths.sort();
         let mut hash = Sha256::new();
@@ -211,10 +258,10 @@ impl Scan {
             self.problem(None, &self.root.clone(), "discovery was cancelled");
             return false;
         }
-        if self.attempted.contains(&filepath::clean(path)) || self.attempted.len() < MAX_FILES {
+        if self.attempted.contains(&filepath::clean(path)) || self.attempted.len() < self.limits.files {
             return true;
         }
-        self.problem(None, &self.root.clone(), format!("discovery stopped at the {MAX_FILES}-file limit"));
+        self.problem(None, &self.root.clone(), format!("discovery stopped at the {}-file limit", self.limits.files));
         false
     }
 
@@ -235,8 +282,8 @@ impl Scan {
             anyhow::bail!("discovery file limit reached");
         }
         self.attempted.insert(path.clone());
-        let remaining = MAX_TOTAL_BYTES.saturating_sub(self.bytes_read);
-        let limit = MAX_SOURCE_BYTES.min(remaining);
+        let remaining = self.limits.total.saturating_sub(self.bytes_read);
+        let limit = self.limits.per_file.min(remaining);
         if let Ok(metadata) = fs::metadata(&path) {
             anyhow::ensure!(metadata.is_file(), "source is not a regular file: {path}");
         }
@@ -248,11 +295,7 @@ impl Scan {
             .map_err(|error| path_error("read", Path::new(&path), error))?;
         self.bytes_read = self.bytes_read.saturating_add(bytes.len());
         if bytes.len() > limit {
-            let error = if limit < MAX_SOURCE_BYTES {
-                "discovery stopped at the 16-MiB source-byte limit"
-            } else {
-                "source exceeds the 2-MiB file limit"
-            };
+            let error = if limit < self.limits.per_file { self.limits.total_message } else { self.limits.file_message };
             self.rejected.insert(path.clone(), error.into());
             self.problem(None, &path, error);
             anyhow::bail!("{error}");
@@ -260,6 +303,10 @@ impl Scan {
         let data: Arc<[u8]> = bytes.into();
         self.contents.insert(path, data.clone());
         Ok(data)
+    }
+
+    pub(crate) fn finish(self, files: Vec<File>) -> Discovery {
+        Discovery { files, diagnostics: self.diagnostics, notices: self.notices, dependencies: self.dependencies }
     }
 }
 
@@ -387,7 +434,7 @@ fn discover_inner(dir: &str, stop: &str, cancel: Option<Arc<AtomicBool>>) -> Dis
         }
     }
     files.retain(|f| !(f.source == Source::Taskfile && included.contains(&identity(&f.path))));
-    Discovery { files, diagnostics: scan.diagnostics, notices: scan.notices, dependencies: scan.dependencies }
+    scan.finish(files)
 }
 
 /// identity detects include cycles even through a symbolic link.

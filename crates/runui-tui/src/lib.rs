@@ -101,6 +101,8 @@ pub struct Config {
     pub repo: String,
     /// the home folder, written ~
     pub home: String,
+    /// Captured process selectors; tests can supply an isolated environment.
+    pub catalog_environment: runui_catalog::Environment,
     pub favorites: Favorites,
     pub registry: runui_catalog::registry::Store,
     pub index: runui_catalog::index::Index,
@@ -119,6 +121,7 @@ impl Config {
             invocation_dir: dir.to_string(),
             repo: repo.to_string(),
             home: home.to_string(),
+            catalog_environment: runui_catalog::Environment::current().with_shell(&runs.execution_shell()),
             registry: runui_catalog::registry::Store::beside_favorites(favorites.file()),
             index: runui_catalog::index::Index::default(),
             favorites,

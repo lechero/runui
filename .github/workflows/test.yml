@@ -29,6 +29,10 @@ jobs:
         env:
           RUNUI_BIN: ${{ github.workspace }}/target/debug/runui
         run: python3 -B scripts/verify-cargo.py
+      - name: Disposable native Cargo alias contracts
+        env:
+          RUNUI_BIN: ${{ github.workspace }}/target/debug/runui
+        run: python3 -B scripts/verify-cargo-aliases.py
 
   homebrew:
     name: Homebrew formula

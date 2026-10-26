@@ -88,8 +88,15 @@ fn registered_catalogs_qualify_duplicate_names_and_keep_scope_independent_ids() 
     index.request(&[a.clone(), b]);
     let indexed = index.wait(Duration::from_secs(3));
     let favorites = runui_favorites::Store::open(&temp.path().join("favorites.json").to_string_lossy()).unwrap();
-    let snapshot =
-        Snapshot::registered(&indexed, &Environment::default(), &a.directory, &favorites, &[], &usage::Data::default());
+    let snapshot = Snapshot::registered(
+        &indexed,
+        &Environment::default(),
+        &a.directory,
+        &favorites,
+        &[],
+        &usage::Data::default(),
+        false,
+    );
     let hits = snapshot.search(&Query::parse("test").unwrap());
     assert_eq!(hits.len(), 2);
     assert_ne!(hits[0].entry.id, hits[1].entry.id);
@@ -131,8 +138,15 @@ fn project_filter_precedes_pagination_and_registered_results_have_explicit_limit
     index.request(&[a.clone(), b.clone()]);
     let indexed = index.wait(Duration::from_secs(3));
     let favorites = runui_favorites::Store::open(&temp.path().join("favorites.json").to_string_lossy()).unwrap();
-    let mut snapshot =
-        Snapshot::registered(&indexed, &Environment::default(), &a.directory, &favorites, &[], &usage::Data::default());
+    let mut snapshot = Snapshot::registered(
+        &indexed,
+        &Environment::default(),
+        &a.directory,
+        &favorites,
+        &[],
+        &usage::Data::default(),
+        false,
+    );
     let prototype = snapshot.entries[0].clone();
     for number in 0..300 {
         let mut entry = prototype.clone();
@@ -154,7 +168,7 @@ fn project_filter_precedes_pagination_and_registered_results_have_explicit_limit
     let indexed =
         [Indexed { project: a, discovery: Some(Arc::new(discovery)), branch: None, error: None, pending: false }];
     let snapshot =
-        Snapshot::registered(&indexed, &Environment::default(), "/", &favorites, &[], &usage::Data::default());
+        Snapshot::registered(&indexed, &Environment::default(), "/", &favorites, &[], &usage::Data::default(), false);
     assert_eq!(snapshot.entries().len(), 10_000);
     assert!(!snapshot.complete());
     assert!(snapshot.diagnostics.iter().any(|item| item.kind == "limit"));

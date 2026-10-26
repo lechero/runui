@@ -9,6 +9,8 @@ python3 -m http.server 8765 --bind 127.0.0.1
 
 The pages are static HTML and CSS with no JavaScript, external fonts, or build step. Videos have native play/pause controls, still posters, and no autoplay. GIFs are also available for GitHub and direct downloads.
 
+[CONTEXT.md](../CONTEXT.md) defines the shared terms. `scripts/probe-discovery.py` records the historical research baseline at `326b0c2`; use the implementation audit and native verification scripts for current behavior.
+
 ## What the guide covers
 
 - [Four panels](index.html#overview): Favorites, Project, Runs, and Log.
@@ -38,6 +40,7 @@ python3 -B scripts/capture-docs.py --binary bin/runui
 # Refresh only the Composer tour:
 python3 -B scripts/capture-docs.py --binary bin/runui --only composer
 python3 -B scripts/capture-docs.py --binary bin/runui --only cargo
+python3 -B scripts/capture-docs.py --binary bin/runui --only cargo-aliases
 ```
 
 The Cargo tour additionally uses an already installed Rust toolchain; it never provisions one or downloads project dependencies.
@@ -50,6 +53,7 @@ For focused real-TUI checks, run `python3 -B scripts/verify-palette.py` and `pyt
 | --- | --- |
 | `assets/tour.gif` / `.mp4` | Discover, favorite, run, reopen the same process, filter nested commands, stop, and revisit Log. |
 | `assets/cargo-tour.gif` / `.mp4`, `cargo.png` | Cargo defaults vs all members, manifest/runtime cwd, required features, explicit offline metadata, and real supervised Rust output. |
+| `assets/cargo-aliases-tour.gif` / `.mp4`, `cargo-aliases.png` | Effective project aliases, opt-in global aliases, configuration origins and a real supervised alias run. |
 | `assets/composer-tour.gif` / `.mp4`, `composer.png` | Canonical alias search, explicit lifecycle hooks, separate tool availability and bounded native checks without unread results. |
 | `assets/log-tour.gif` / `.mp4` | Local and remote failures, a successful result, individual acknowledgement, a running count left intact, and retained history. |
 | `assets/agents-tour.gif` / `.mp4` | Real MCP discovery, start, list, read, stop, disconnect/reconnect, and review of agent results. |
@@ -71,6 +75,4 @@ This regenerates browser/touch/app icons and the repository social card. The [br
 
 ## Planned discovery improvements
 
-The [research](command-discovery-research.md) and [integration plan](command-discovery-plan.md) are roadmap documents. They distinguish implemented catalog/workspace/registry/Composer work from the remaining Cargo, shell recall, inputs and workflow contracts. The user guide documents current behavior.
-
-[CONTEXT.md](../CONTEXT.md) defines the shared terms. `scripts/probe-discovery.py` records the historical research baseline at `326b0c2`; use the implementation audit and native verification scripts for current behavior.
+The [research](command-discovery-research.md) and [integration plan](command-discovery-plan.md) are roadmap documents. The [implementation audit](implementation-status.md) distinguishes implemented catalog/workspace/registry/Composer/Cargo work from the remaining shell recall, environment verification, inputs and workflow contracts. The user guide documents current behavior.

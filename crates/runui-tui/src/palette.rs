@@ -30,6 +30,7 @@ pub(crate) struct Palette {
     at: usize,
     mode: Mode,
     scope: Scope,
+    cargo_global_aliases: bool,
     workspace_discovery: Option<(String, Arc<runui_project::Discovery>)>,
     pub(crate) loading: bool,
     queued: bool,
@@ -92,6 +93,7 @@ impl Palette {
             at: 0,
             mode: Mode::Commands,
             scope: Scope::Project,
+            cargo_global_aliases: false,
             workspace_discovery: None,
             loading: false,
             queued: false,
@@ -219,14 +221,15 @@ impl Palette {
             S_BAD.render(&safe(&self.error))
         } else {
             let status = format!(
-                "{} matches · {} diagnostics · f2 inspect · ctrl+v details · alt+i native",
+                "{} matches · {} diagnostics · f2 inspect · ctrl+v details · alt+i native · Cargo globals {} (alt+g)",
                 self.hits.len(),
-                self.snapshot.diagnostics.len()
+                self.snapshot.diagnostics.len(),
+                if self.cargo_global_aliases { "on" } else { "off" }
             );
             if self.note.is_empty() {
                 S_DIM.render(&status)
             } else {
-                S_ACCENT.render(&format!("{status} · {}", safe(&self.note)))
+                S_ACCENT.render(&format!("{} · {status}", safe(&self.note)))
             }
         };
         lines.push(information);
@@ -353,6 +356,33 @@ impl Palette {
                 .into(),
             );
         }
+        if let Some(alias) = &entry.cargo_alias {
+            lines.push(format!("Cargo alias · {}", if alias.global { "global context" } else { "project context" }));
+            lines.push(format!(
+                "Native expansion: {}",
+                match &alias.value {
+                    runui_project::CargoAliasValue::String(value) => safe(value),
+                    runui_project::CargoAliasValue::Array(values) => format!("{:?}", values),
+                }
+            ));
+            if entry.availability == runui_catalog::Availability::ProjectEnvironment {
+                lines.push("Expansion uses captured config; the project wrapper environment is unchecked.".into());
+            }
+            lines.push("Cargo owns expansion; extra arguments go directly to the alias.".into());
+            lines.push("Include -- explicitly when the alias's subcommand needs program arguments.".into());
+            for origin in &alias.origins {
+                if let Some(file) = &origin.file {
+                    lines.push(format!("config: {}", safe(file)));
+                }
+                if let Some(environment) = &origin.environment {
+                    lines.push(format!("environment override: {}", safe(environment)));
+                }
+            }
+            if let Some(reason) = &alias.disabled_reason {
+                lines.push(format!("Unavailable: {}", safe(reason)));
+            }
+            lines.extend(alias.diagnostics.iter().map(|message| safe(message)));
+        }
         if !entry.aliases.is_empty() {
             lines.push(format!(
                 "aliases: {}",
@@ -467,7 +497,9 @@ impl Palette {
                 lines.push(format!("registry: {id}"));
             }
         }
-        if let Some(file) = &entry.entry_file {
+        if let Some(file) = &entry.entry_file
+            && entry.cargo_alias.is_none()
+        {
             lines.push(format!(
                 "entry: {}{}",
                 safe(file),
@@ -487,7 +519,7 @@ impl Palette {
                 entry.defining_line.map(|line| format!(":{line}")).unwrap_or_default()
             ));
         }
-        if !entry.description.is_empty() {
+        if !entry.description.is_empty() && entry.cargo_alias.is_none() {
             lines.push(safe(&entry.description));
         }
         if let Some(state) = &entry.state {
@@ -515,6 +547,7 @@ impl Palette {
                 [
                     "Enter run/focus · Alt+R another",
                     "Tab mode · Alt+S scope · Alt+P projects",
+                    "Alt+G includes global Cargo aliases",
                     "Alt+M favorite · Ctrl+Y copy",
                     "Ctrl+O source · Ctrl+T terminal · F2 diagnostics",
                     "Esc returns",
@@ -538,10 +571,24 @@ pub(crate) fn safe(text: &str) -> String {
         .collect()
 }
 
-pub(crate) fn build(
+fn catalog_context(
     dir: &str,
     repo: &str,
     invocation: &str,
+    environment: &runui_catalog::Environment,
+    cargo_global_aliases: bool,
+) -> Context {
+    Context {
+        project: runui_catalog::canonical(dir),
+        checkout: runui_catalog::canonical(repo),
+        invocation_dir: runui_catalog::canonical(invocation),
+        environment: environment.clone(),
+        cargo_global_aliases,
+    }
+}
+
+pub(crate) fn build(
+    context: &Context,
     discovery: &runui_project::Discovery,
     favorites: &[runui_favorites::Favorite],
     runs: &[runui_runs::Run],
@@ -552,12 +599,9 @@ pub(crate) fn build(
         let _ = store.reconcile(runs);
     }
     let usage = store.as_ref().map(|store| store.load()).transpose();
-    let mut context = Context::new(dir, repo);
-    context.invocation_dir = runui_catalog::canonical(invocation);
-    context.environment = context.environment.with_shell(&runner.execution_shell());
     let default = runui_catalog::usage::Data::default();
     let mut snapshot = Snapshot::build(
-        &context,
+        context,
         discovery,
         favorites,
         runs,
@@ -576,7 +620,7 @@ pub(crate) fn build(
 
 fn build_registered(
     indexed: &[runui_catalog::index::Indexed],
-    invocation: &str,
+    context: &Context,
     favorites: &runui_favorites::Store,
     runs: &[runui_runs::Run],
     runner: &dyn crate::Runner,
@@ -587,14 +631,14 @@ fn build_registered(
     }
     let usage = store.as_ref().map(|store| store.load()).transpose();
     let default = runui_catalog::usage::Data::default();
-    let environment = runui_catalog::Environment::current().with_shell(&runner.execution_shell());
     let mut snapshot = Snapshot::registered(
         indexed,
-        &environment,
-        invocation,
+        &context.environment,
+        &context.invocation_dir,
         favorites,
         runs,
         usage.as_ref().ok().and_then(|data| data.as_ref()).unwrap_or(&default),
+        context.cargo_global_aliases,
     );
     if let Err(error) = usage {
         snapshot.diagnostics.push(runui_catalog::Diagnostic {
@@ -624,12 +668,14 @@ impl App {
         }
         palette.loading = true;
         let scope = palette.scope;
+        let cargo_global_aliases = palette.cargo_global_aliases;
         let needs_projects = scope == Scope::Registered || palette.picker.is_some();
         let project_filter = palette.project_filter.clone();
         let previous = palette.workspace_discovery.clone();
         let epoch = self.palette_epoch;
         let (dir, repo) = (self.cfg.dir.clone(), self.cfg.repo.clone());
         let invocation = self.cfg.invocation_dir.clone();
+        let environment = self.cfg.catalog_environment.clone();
         let (registry, index) = (self.cfg.registry.clone(), self.cfg.index.clone());
         let (discovery, favorites, runs, runner, discover) = (
             self.discovery.clone(),
@@ -640,6 +686,7 @@ impl App {
         );
         tea::cmd_msg(move || {
             let selected = dir;
+            let mut context = catalog_context(&selected, &repo, &invocation, &environment, cargo_global_aliases);
             let project_data = if needs_projects {
                 Some(registry.load().map(|data| index.request(&data.projects)).map_err(|error| format!("{error:#}")))
             } else {
@@ -653,7 +700,7 @@ impl App {
                             .filter(|item| project_filter.as_ref().is_none_or(|id| &item.project.id == id))
                             .cloned()
                             .collect();
-                        build_registered(&selected, &invocation, &favorites, &runs, runner.as_ref())
+                        build_registered(&selected, &context, &favorites, &runs, runner.as_ref())
                     }
                     _ => Snapshot::default(),
                 };
@@ -679,9 +726,10 @@ impl App {
             };
             let favorites =
                 if scope == Scope::Workspace { favorites.for_tree(&dir) } else { favorites.for_dir(&selected) };
+            context.project = runui_catalog::canonical(&dir);
             Loaded {
                 epoch,
-                snapshot: build(&dir, &repo, &invocation, &discovery, &favorites, &runs, runner.as_ref()),
+                snapshot: build(&context, &discovery, &favorites, &runs, runner.as_ref()),
                 workspace_discovery: if scope == Scope::Workspace { Some((dir, discovery)) } else { None },
                 projects: project_data,
             }
@@ -773,6 +821,23 @@ impl App {
             }
             "alt+p" if !palette.launching => {
                 palette.picker = Some(projects::Picker::new());
+                self.refresh_palette()
+            }
+            "alt+g" if !palette.launching => {
+                palette.cargo_global_aliases = !palette.cargo_global_aliases;
+                palette.native_cancel.store(true, Ordering::Relaxed);
+                palette.native_busy = false;
+                palette.native = None;
+                palette.loading = false;
+                palette.queued = false;
+                palette.set_snapshot(Snapshot::default());
+                palette.note = if palette.cargo_global_aliases {
+                    "Global Cargo aliases included for each selected invocation directory"
+                } else {
+                    "Showing project Cargo aliases"
+                }
+                .into();
+                self.palette_epoch += 1;
                 self.refresh_palette()
             }
             "up" if palette.detail => {
@@ -929,9 +994,11 @@ impl App {
                 palette.note = "Validating the current definition…".into();
                 let epoch = self.palette_epoch;
                 let scope = palette.scope;
+                let cargo_global_aliases = palette.cargo_global_aliases;
                 let registered = entry.registry_id.clone();
                 let (dir, repo) = (self.cfg.dir.clone(), self.cfg.repo.clone());
                 let invocation = self.cfg.invocation_dir.clone();
+                let environment = self.cfg.catalog_environment.clone();
                 let registry = self.cfg.registry.clone();
                 let (discover, favorites, runs, runner) =
                     (self.cfg.discover, self.cfg.favorites.clone(), self.runs.clone(), self.cfg.runs.clone());
@@ -971,7 +1038,8 @@ impl App {
                     let discovery = discover(&dir, &repo);
                     let favorites =
                         if scope != Scope::Project { favorites.for_tree(&dir) } else { favorites.for_dir(&selected) };
-                    let mut fresh = build(&dir, &repo, &invocation, &discovery, &favorites, &runs, runner.as_ref());
+                    let context = catalog_context(&dir, &repo, &invocation, &environment, cargo_global_aliases);
+                    let mut fresh = build(&context, &discovery, &favorites, &runs, runner.as_ref());
                     if let Some(project) = project {
                         fresh = fresh
                             .with_registration(&project, runui_catalog::index::branch(&project.directory).as_deref());

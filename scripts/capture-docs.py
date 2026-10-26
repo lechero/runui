@@ -556,27 +556,31 @@ def capture_composer() -> None:
     tour.save("composer-tour")
 
 
-def capture_cargo() -> None:
+def prepare_cargo_demo(session: Session) -> None:
     rustup = shutil.which('rustup')
     def installed(name):
         if rustup:
             return Path(subprocess.run([rustup,'which',name],env=dict(os.environ,RUSTUP_AUTO_INSTALL='0'),text=True,capture_output=True,check=True,timeout=10).stdout.strip()).resolve()
         return Path(shutil.which(name)).resolve()
     cargo,rustc = installed('cargo'),installed('rustc')
+    app=session.app
+    (app/'Cargo.toml').write_text("[workspace]\nresolver='3'\nmembers=['crates/*']\n")
+    member=app/'crates/demo'
+    (member/'src').mkdir(parents=True)
+    (member/'Cargo.toml').write_text("[package]\nname='demo'\nversion='0.1.0'\nedition='2024'\n[features]\ndemo=[]\n[[bin]]\nname='demo'\nrequired-features=['demo']\n")
+    (member/'src/main.rs').write_text('fn main(){println!("Cargo demo ready");println!("Runtime cwd: {}",std::env::current_dir().unwrap().display());}\n')
+    session.unset=[key for key in os.environ if key.startswith(('CARGO_','RUST','MISE_'))]
+    session.environment={'PATH':f"{session.home/'bin'}:{cargo.parent}:/usr/bin:/bin",'RUSTC':str(rustc),'CARGO_HOME':str(session.home/'cargo-home'),'CARGO_TARGET_DIR':str(session.home/'target'),'RUSTUP_AUTO_INSTALL':'0','CARGO_NET_OFFLINE':'true'}
+    env=demo_env(session.home);env.update(session.environment)
+    for key in session.unset:
+        if key not in session.environment:env.pop(key,None)
+    subprocess.run([str(cargo),'generate-lockfile','--offline'],cwd=app,env=env,capture_output=True,text=True,check=True,timeout=20)
+
+
+def capture_cargo() -> None:
     tour = Tour()
     with demo() as session:
-        app=session.app
-        (app/'Cargo.toml').write_text("[workspace]\nresolver='3'\nmembers=['crates/*']\n")
-        member=app/'crates/demo'
-        (member/'src').mkdir(parents=True)
-        (member/'Cargo.toml').write_text("[package]\nname='demo'\nversion='0.1.0'\nedition='2024'\n[features]\ndemo=[]\n[[bin]]\nname='demo'\nrequired-features=['demo']\n")
-        (member/'src/main.rs').write_text('fn main(){println!("Cargo demo ready");println!("Runtime cwd: {}",std::env::current_dir().unwrap().display());}\n')
-        session.unset=[key for key in os.environ if key.startswith(('CARGO_','RUST','MISE_'))]
-        session.environment={'PATH':f"{session.home/'bin'}:{cargo.parent}:/usr/bin:/bin",'RUSTC':str(rustc),'CARGO_HOME':str(session.home/'cargo-home'),'CARGO_TARGET_DIR':str(session.home/'target'),'RUSTUP_AUTO_INSTALL':'0','CARGO_NET_OFFLINE':'true'}
-        env=demo_env(session.home);env.update(session.environment)
-        for key in session.unset:
-            if key not in session.environment:env.pop(key,None)
-        subprocess.run([str(cargo),'generate-lockfile','--offline'],cwd=app,env=env,capture_output=True,text=True,check=True,timeout=20)
+        prepare_cargo_demo(session)
         session.start()
         session.key('C-p')
         session.tmux('send-keys','-l','-t',session.target,'source:cargo check')
@@ -603,11 +607,41 @@ def capture_cargo() -> None:
     tour.save('cargo-tour')
 
 
+def capture_cargo_aliases() -> None:
+    tour = Tour()
+    with demo() as session:
+        prepare_cargo_demo(session)
+        config=session.app/'.cargo/config.toml';config.parent.mkdir()
+        config.write_text('[alias]\ndemo=["run","--offline","--locked","--package","demo","--bin","demo","--features","demo"]\n')
+        global_config=session.home/'cargo-home/config.toml';global_config.parent.mkdir(exist_ok=True)
+        global_config.write_text('[alias]\nverify-global="check --workspace --offline --locked"\n')
+        session.start()
+        session.key('C-p')
+        session.tmux('send-keys','-l','-t',session.target,'source:cargo kind:alias')
+        session.wait('Cargo alias · project context')
+        assert 'verify-global' not in session.plain()
+        assert not list((session.home/'state/runui/runs').glob('*/run.json'))
+        session.shot('cargo-aliases','runui · Cargo aliases: native expansion, explicit context')
+        tour.frame(session,'1 / Find project aliases and inspect their native configuration',2400)
+        session.key('M-g','Down')
+        session.wait('Cargo alias · global context')
+        session.wait('verify-global')
+        tour.frame(session,'2 / Opt into global aliases and see where each declaration comes from',2600)
+        session.key('M-g')
+        session.wait('Cargo alias · project context')
+        session.key('Enter')
+        session.wait('Cargo demo ready',30)
+        session.wait('exited',10)
+        session.expect_status(0,0,0)
+        tour.frame(session,'3 / Run the selected alias through Cargo and return to its retained output',2400)
+    tour.save('cargo-aliases-tour')
+
+
 def main() -> None:
     global BIN
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--binary", type=Path, default=BIN, help="Rust binary to capture (default: bin/runui)")
-    parser.add_argument("--only", choices=["composer","cargo"], help="Refresh one focused tour")
+    parser.add_argument("--only", choices=["composer","cargo","cargo-aliases"], help="Refresh one focused tour")
     args = parser.parse_args()
     BIN = args.binary.expanduser().resolve()
     if not BIN.is_file():
@@ -622,12 +656,16 @@ def main() -> None:
     if args.only == "cargo":
         capture_cargo()
         return
+    if args.only == "cargo-aliases":
+        capture_cargo_aliases()
+        return
     capture_tour()
     capture_log()
     capture_agents()
     capture_composer()
     capture_cargo()
-    print("Captured all screenshots, 5 GIFs and 5 videos using isolated real runs.", flush=True)
+    capture_cargo_aliases()
+    print("Captured all screenshots, 6 GIFs and 6 videos using isolated real runs.", flush=True)
 
 
 if __name__ == "__main__":

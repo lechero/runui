@@ -111,6 +111,7 @@ fn read_contents(
             hook: false,
             requirements: Vec::new(),
             cargo: None,
+            cargo_alias: None,
             name: full,
             desc: desc(&task),
         });
