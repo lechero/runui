@@ -17,6 +17,43 @@ use super::*;
 const SUPERVISE_ENV: &str = "RUNUI_TUI_TEST_SUPERVISE";
 
 #[test]
+fn cargo_aliases_show_provenance_and_global_scope_is_explicit() {
+    let world = new_world();
+    fs::create_dir_all(filepath::join(&[&world.dir, ".cargo"])).unwrap();
+    fs::create_dir_all(filepath::join(&[&world.home, ".cargo"])).unwrap();
+    fs::write(filepath::join(&[&world.dir, ".cargo/config.toml"]), "[alias]\nlocal-alias='version'\n").unwrap();
+    fs::write(filepath::join(&[&world.home, ".cargo/config.toml"]), "[alias]\nglobal-alias='version'\n").unwrap();
+    let mut h = open(&world);
+    h.keys(&["ctrl+p"]);
+    h.typed("source:cargo kind:alias");
+    assert!(h.screen().contains("local-alias"));
+    assert!(!h.screen().contains("global-alias"));
+    assert!(h.screen().contains("Cargo alias · project context"));
+    h.keys(&["alt+g"]);
+    assert!(h.screen().contains("global-alias"));
+    assert!(h.screen().contains("Cargo alias · global context"));
+    h.keys(&["ctrl+v"]);
+    assert!(h.screen().contains("Cargo owns expansion"));
+    h.keys(&["alt+g"]);
+    assert!(!h.screen().contains("global-alias"));
+    assert!(world.runs.list().unwrap().is_empty());
+}
+
+#[test]
+fn invalid_cargo_aliases_explain_the_failure_without_creating_a_run() {
+    let world = new_world();
+    fs::create_dir_all(filepath::join(&[&world.dir, ".cargo"])).unwrap();
+    fs::write(filepath::join(&[&world.dir, ".cargo/config.toml"]), "[alias]\nloop='loop'\n").unwrap();
+    let mut h = open(&world);
+    h.keys(&["ctrl+p"]);
+    h.typed("source:cargo kind:alias loop");
+    assert!(h.screen().contains("recursion contains a cycle"));
+    h.keys(&["enter"]);
+    assert!(h.screen().contains("recursion contains a cycle"));
+    assert!(world.runs.list().unwrap().is_empty());
+}
+
+#[test]
 fn supervise_helper() {
     if std::env::var(SUPERVISE_ENV).as_deref() != Ok("1") {
         return;
@@ -98,7 +135,9 @@ struct Harness<'w> {
 }
 
 fn open(w: &World) -> Harness<'_> {
-    let cfg = Config::new(&w.dir, &w.dir, &w.home, w.favs_now(), w.runs.clone());
+    let mut cfg = Config::new(&w.dir, &w.dir, &w.home, w.favs_now(), w.runs.clone());
+    cfg.catalog_environment = runui_catalog::Environment::default().with_shell(&w.runs.execution_shell());
+    cfg.catalog_environment.cargo_aliases.cargo_home = Some(std::path::Path::new(&w.home).join(".cargo"));
     let mut h = Harness { m: Model::new(cfg), w };
     h.send(tea::msg(WindowSizeMsg { width: 120, height: 36 }));
     h
@@ -1126,11 +1165,13 @@ fn workspace_palette_keeps_project_panels_and_executes_in_the_selected_members_d
     fs::write(filepath::join(&[&web, "package.json"]), r#"{"scripts":{"web":"true"}}"#).unwrap();
     fs::write(filepath::join(&[&engine, "package.json"]), "{}").unwrap();
     fs::write(filepath::join(&[&engine, "Makefile"]), "engine:\n\t@printf 'ENGINE_READY\\n' > result.txt\n").unwrap();
-    let cfg = Config::new(&web, &world.dir, &world.home, world.favs_now(), world.runs.clone());
+    let mut cfg = Config::new(&web, &world.dir, &world.home, world.favs_now(), world.runs.clone());
+    cfg.catalog_environment = runui_catalog::Environment::default().with_shell(&world.runs.execution_shell());
+    cfg.catalog_environment.cargo_aliases.cargo_home = Some(std::path::Path::new(&world.home).join(".cargo"));
     let mut h = Harness { m: Model::new(cfg), w: &world };
     h.send(tea::msg(WindowSizeMsg { width: 120, height: 36 }));
     h.keys(&["ctrl+p"]);
-    h.typed("engine");
+    h.typed("source:make engine");
     assert!(h.screen().contains("No matches"));
     h.keys(&["alt+s"]);
     assert!(h.screen().contains("Commands · Workspace"));

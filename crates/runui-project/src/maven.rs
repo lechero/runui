@@ -61,6 +61,7 @@ pub(crate) fn read_tracked(
             hook: false,
             requirements: Vec::new(),
             cargo: None,
+            cargo_alias: None,
             name: goals,
             desc,
         }

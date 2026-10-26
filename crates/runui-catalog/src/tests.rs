@@ -33,6 +33,98 @@ fn script(context: &Context, name: &str, body: &str) -> String {
 }
 
 #[test]
+fn cargo_aliases_have_stable_native_identity_and_prepare_literal_arguments() {
+    let (_temp, context) = fixture();
+    write(&context, ".cargo/config.toml", "[alias]\nprobe=['runui-echo','space kept']\n");
+    let before = snapshot(&context);
+    let entry = before.search(&Query::parse("source:cargo kind:alias probe").unwrap())[0].entry;
+    assert_eq!(entry.origin, Origin::Declared);
+    assert_eq!(entry.command, "cargo probe");
+    assert_eq!(entry.requirements.len(), 1);
+    let inputs =
+        Inputs { args: vec!["--".into(), "-x".into(), "space value".into(), String::new()], ..Inputs::default() };
+    let prepared = before.prepare(&entry.id, Some(&entry.fingerprint), &inputs).unwrap();
+    assert_eq!(prepared.command, "cargo probe -- -x 'space value' ''");
+    fs::rename(
+        Path::new(&context.project).join(".cargo/config.toml"),
+        Path::new(&context.project).join(".cargo/config"),
+    )
+    .unwrap();
+    let moved = snapshot(&context);
+    let same = moved.get(&entry.id).unwrap();
+    assert!(same.entry_file.as_ref().unwrap().ends_with(".cargo/config"));
+    assert_ne!(entry.fingerprint, same.fingerprint);
+    write(&context, ".cargo/config", "[alias]\nprobe='runui-echo changed'\n");
+    let changed = snapshot(&context);
+    assert!(matches!(
+        changed.prepare(&entry.id, Some(&same.fingerprint), &Inputs::default()),
+        Err(PrepareError::Stale { .. })
+    ));
+}
+
+#[test]
+fn global_and_environment_only_aliases_are_explicit_and_recursive_env_changes_are_stale() {
+    let (temp, mut context) = fixture();
+    let home = temp.path().join("cargo-home");
+    fs::create_dir_all(&home).unwrap();
+    fs::write(home.join("config.toml"), "[alias]\nglobal='version'\n").unwrap();
+    context.environment.cargo_aliases.cargo_home = Some(home);
+    context.environment.cargo_aliases.values.insert("CARGO_ALIAS_ENV_ONLY".into(), "version".into());
+    assert!(snapshot(&context).entries().is_empty());
+    write(&context, ".cargo/config.toml", "[alias]\nlocal='env-only --verbose'\n");
+    let before = snapshot(&context);
+    let local = before.entries().iter().find(|entry| entry.name == "local").unwrap();
+    assert_eq!(before.entries().len(), 1);
+    context.cargo_global_aliases = true;
+    let enabled = snapshot(&context);
+    assert_eq!(enabled.get(&local.id).unwrap().fingerprint, local.fingerprint);
+    let env = enabled.entries().iter().find(|entry| entry.name == "env-only").unwrap();
+    assert!(env.entry_file.is_none() && env.defining_file.is_none());
+    assert_eq!(enabled.search(&Query::parse("kind:global_alias").unwrap()).len(), 2);
+    context.environment.cargo_aliases.values.insert("CARGO_ALIAS_ENV_ONLY".into(), "version --verbose".into());
+    assert!(matches!(
+        snapshot(&context).prepare(&local.id, Some(&local.fingerprint), &Inputs::default()),
+        Err(PrepareError::Stale { .. })
+    ));
+}
+
+#[test]
+fn cargo_aliases_read_invocation_ancestors_and_registered_fallback_not_member_configs() {
+    let (_temp, mut context) = fixture();
+    write(&context, ".cargo/config", "[alias]\nlocal='version'\n");
+    write(&context, ".cargo/config.toml", "[alias]\nignored='version'\n");
+    write(&context, "member/.cargo/config.toml", "[alias]\nlocal='version --verbose'\n");
+    let root = snapshot(&context);
+    let entry = &root.entries()[0];
+    write(&context, ".cargo/config.toml", "[alias]\nignored='changed'\n");
+    assert_eq!(snapshot(&context).get(&entry.id).unwrap().fingerprint, entry.fingerprint);
+    write(&context, "member/.cargo/config.toml", "[alias]\nlocal='version --help'\n");
+    assert_eq!(snapshot(&context).get(&entry.id).unwrap().fingerprint, entry.fingerprint);
+    context.invocation_dir = canonical(&Path::new(&context.project).join("member").to_string_lossy());
+    let member = snapshot(&context);
+    let member = &member.entries()[0];
+    assert_ne!(member.id, entry.id);
+    assert_eq!(member.directory, context.invocation_dir);
+    assert_eq!(
+        member.cargo_alias.as_ref().unwrap().value,
+        runui_project::CargoAliasValue::String("version --help".into())
+    );
+    context.invocation_dir = "/unrelated/checkout".into();
+    assert_eq!(snapshot(&context).get(&entry.id).unwrap().directory, context.project);
+}
+
+#[test]
+fn disabled_cargo_aliases_remain_inspectable_and_do_not_prepare_runs() {
+    let (_temp, context) = fixture();
+    write(&context, ".cargo/config.toml", "[alias]\nloop='loop'\n");
+    let snapshot = snapshot(&context);
+    let entry = &snapshot.entries()[0];
+    assert!(entry.cargo_alias.as_ref().unwrap().disabled_reason.as_ref().unwrap().contains("cycle"));
+    assert!(!snapshot.complete());
+    assert!(matches!(snapshot.prepare(&entry.id, None, &Inputs::default()), Err(PrepareError::Inputs(_))));
+}
+
+#[test]
 fn identity_is_stable_across_refresh_and_definition_edits() {
     let (_temp, context) = fixture();
     write(&context, "package.json", r#"{"scripts":{"test":"echo before"}}"#);

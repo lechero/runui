@@ -64,7 +64,7 @@ Use `tab` / `shift+tab` between panels and `[` / `]` between a panel's tabs. Pre
 | Compose files | `up`, `up --build`, `down`, `ps`, `logs -f`, and `up` for individual services. |
 | `pom.xml` | Install, verify, test, and non-default profile builds; uses `mvnw` when present. |
 | `composer.json` | Native scripts, descriptions, and aliases; arrays, callbacks and `@...` helpers stay with Composer. Lifecycle hooks require `kind:hook` in the palette. |
-| `Cargo.toml` | Generated package/default-member/all-member actions, binaries, examples and test/bench targets. Required features and invocation cwd stay explicit. |
+| `Cargo.toml`, Cargo config | Generated package/default-member/all-member actions, named targets, required features, and contextual aliases. Global-only aliases are opt-in. |
 
 ![Root scripts and apps/web scripts in the Project panel](docs/assets/scripts.png)
 
@@ -89,7 +89,11 @@ Composer scripts keep their native behavior and cwd. Aliases search the canonica
 
 Cargo discovery reads manifests and target layouts without running Cargo. Package, default-member, and explicit all-member actions are distinct; selecting a named target enables only its listed required features. The list identifies its manifest folder, while the preview shows the invocation cwd retained by `cargo run`. `alt+i` explicitly checks offline, locked native metadata with installed tools; results stay beside the selected fingerprint, without a run or unread count. Targets and deep/nested workspace members are shared across TUI, CLI and MCP. [Cargo context and inspection limits](docs/command-catalog.md#cargo).
 
-Press `m` in a panel to star a command, or `a` to save your own named shell command. Runui notices edits to files it reads; `r` rescans, including newly added nested files. Cargo aliases, shell recall, and input presets remain in the [integration plan](docs/command-discovery-plan.md).
+![Real Cargo alias discovery, explicit global context, and retained output](docs/assets/cargo-aliases-tour.gif)
+
+Search `source:cargo kind:alias` for effective Cargo aliases in the invocation directory. The preview shows native expansion and configuration origins. `alt+g` includes global-only aliases; CLI uses `--cargo-global-aliases`, and MCP uses `cargo_global_aliases: true`. Project aliases retain Cargo's global overrides and typed merge rules. Running an alias delegates expansion and extra arguments to Cargo. [Alias context and limits](docs/command-catalog.md#cargo-aliases).
+
+Press `m` in a panel to star a command, or `a` to save your own named shell command. Runui notices edits to files it reads; `r` rescans, including newly added nested files. Shell recall and input presets remain in the [integration plan](docs/command-discovery-plan.md).
 
 Declared pnpm/npm/Yarn and Cargo workspace packages can be deeper than three levels. Workspace scope searches the enclosing declaration while each command keeps its own cwd. Exclusions control package membership; `.runuiignore` uses Git-ignore syntax to exclude discovery paths, including declared members. Repository `.gitignore` files apply to incidental folders; a declared member overrides them with a notice. Nested repositories, symlinks, dependencies and generated folders stay traversal boundaries.
 
@@ -190,6 +194,7 @@ If your shell and tmux disagree, use the absolute path from `command -v runui` i
 | `ctrl+p` | Open the palette; `tab` switches Commands / Recent, `alt+s` switches scope, `alt+p` opens projects. |
 | `ctrl+v`, `f2` in the palette | Scrollable command details or discovery diagnostics. |
 | `alt+i` in the palette | Explicit Composer/PHP version or Cargo metadata checks, with limits and no unread run. |
+| `alt+g` in the palette | Include global-only Cargo aliases for each selected invocation context. |
 | `enter` | Run a command; on a run, focus its output. |
 | `s` / `R` | Stop or restart a run. |
 | `m` / `a` / `e` / `D` | Star, add, edit, or remove; `D` also forgets an ended run. |
@@ -220,7 +225,7 @@ task build          # build bin/runui
 task run            # build and open the current folder
 task test           # workspace tests and clippy
 task lint           # clippy and rustfmt checks
-task docs:capture   # rebuild screenshots, 5 GIFs, and 5 playable videos
+task docs:capture   # rebuild screenshots, 6 GIFs, and 6 playable videos
 ```
 
 Captures need Python 3.10+, Pillow, tmux, Task, and ffmpeg. They exercise the real Rust app and all six MCP tools in temporary projects and private tmux sessions. Your favorites and run history are untouched. [Media maintenance](docs/README.md) covers regeneration and local preview.

@@ -37,6 +37,11 @@ pub fn check(entry: &Entry, cancel: &AtomicBool) -> Report {
     if !matches!(entry.source.as_str(), "composer" | "cargo") || !matches!(entry.kind, Kind::Command | Kind::Hook) {
         return skip("Native checks support Composer scripts and generated Cargo definitions.");
     }
+    if entry.cargo_alias.is_some() {
+        return skip(
+            "Native inspection does not execute Cargo aliases. Inspect the effective declaration and its config origins; Cargo owns expansion when you run it.",
+        );
+    }
     let Recipe::Tool { argv, shell, .. } = &entry.recipe else {
         return skip("No native tool recipe.");
     };

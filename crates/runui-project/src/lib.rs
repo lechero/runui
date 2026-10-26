@@ -26,7 +26,10 @@ mod workspace;
 mod xml;
 mod yaml;
 
-pub use cargo::{CargoDetails, CargoScope, CargoTarget, TargetKind};
+pub use cargo::{
+    CargoAlias, CargoAliasContext, CargoAliasEnvironment, CargoAliasOrigin, CargoAliasValue, CargoDetails, CargoScope,
+    CargoTarget, TargetKind, discover_aliases as discover_cargo_aliases,
+};
 pub use compose::read_compose;
 pub use composer::read_composer;
 pub use discovery::{Diagnostic, Discovery, canonical_path, discover, discover_cancellable};
@@ -125,6 +128,8 @@ pub struct Command {
     pub requirements: Vec<String>,
     /// Static Cargo provenance and target inputs; other providers leave it absent.
     pub cargo: Option<CargoDetails>,
+    /// Effective Cargo alias configuration for this invocation context.
+    pub cargo_alias: Option<CargoAlias>,
 }
 
 /// File is one of the project's files and the commands in it.

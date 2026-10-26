@@ -43,6 +43,7 @@ Usage:
   runui find [-C DIR] [--mode commands|recent|all] [--json] [QUERY]
   runui inspect [-C DIR] [--json] [--native] ID  inspect a command and its fingerprint
   --native explicitly checks Composer versions or offline locked Cargo metadata.
+  Search, inspect and run accept --cargo-global-aliases to include global Cargo aliases.
   runui run [-C DIR] [--json] [--fingerprint VALUE] ID -- [ARGS...]
   runui projects [add DIR|forget ID_OR_DIR] [--json]  manage explicit checkouts
   Composer run accepts --timeout SECONDS (0 disables; default: project setting).
@@ -209,7 +210,11 @@ struct Workspace {
 }
 
 impl Workspace {
-    fn catalog_scoped(&self, scope: runui_catalog::Scope) -> Result<runui_catalog::Snapshot> {
+    fn catalog_scoped(
+        &self,
+        scope: runui_catalog::Scope,
+        cargo_global_aliases: bool,
+    ) -> Result<runui_catalog::Snapshot> {
         let store = self.runs()?;
         let usage_store = runui_catalog::usage::Store::for_runs(&store.root);
         let observed = store.list()?;
@@ -243,6 +248,7 @@ impl Workspace {
                 &favorites,
                 &observed,
                 usage.as_ref().unwrap_or(&default_usage),
+                cargo_global_aliases,
             );
             if let Err(error) = usage {
                 snapshot.diagnostics.push(runui_catalog::Diagnostic {
@@ -258,6 +264,7 @@ impl Workspace {
         let mut context = runui_catalog::Context::new(&directory, &self.repo);
         context.invocation_dir = runui_catalog::canonical(&self.invocation_dir);
         context.environment = context.environment.with_shell(&store.shell);
+        context.cargo_global_aliases = cargo_global_aliases;
         let mut snapshot = runui_catalog::Snapshot::build(
             &context,
             &project::discover(&directory, &self.repo),
@@ -288,12 +295,13 @@ impl Workspace {
         &self,
         scope: runui_catalog::Scope,
         registered: Option<&str>,
+        cargo_global_aliases: bool,
     ) -> Result<runui_catalog::Snapshot> {
         if scope != runui_catalog::Scope::Registered {
             if registered.is_some() {
                 return Err(anyhow!("project identity applies only to registered scope"));
             }
-            return self.catalog_scoped(scope);
+            return self.catalog_scoped(scope, cargo_global_aliases);
         }
         let selected = self
             .registry()?
@@ -306,6 +314,7 @@ impl Workspace {
         let mut context = runui_catalog::Context::new(&selected.directory, &selected.directory);
         context.invocation_dir = runui_catalog::canonical(&self.invocation_dir);
         context.environment = context.environment.with_shell(&store.shell);
+        context.cargo_global_aliases = cargo_global_aliases;
         let mut snapshot = runui_catalog::Snapshot::build(
             &context,
             &project::discover(&selected.directory, &selected.directory),

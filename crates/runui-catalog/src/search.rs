@@ -176,6 +176,8 @@ fn facet_matches(entry: &Entry, facet: &str, value: &str) -> bool {
             "recent" => entry.kind == Kind::Recent,
             "generated" => entry.origin == Origin::Generated,
             "declared" => entry.origin == Origin::Declared,
+            "alias" => entry.cargo_alias.is_some(),
+            "global_alias" => entry.cargo_alias.as_ref().is_some_and(|alias| alias.global),
             _ => false,
         },
         _ => false,

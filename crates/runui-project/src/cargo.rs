@@ -10,8 +10,12 @@ use toml::Value;
 use crate::discovery::Scan;
 use crate::{Command, Source, canonical_path, quote};
 
+mod aliases;
 mod targets;
 mod workspace;
+pub use aliases::{
+    CargoAlias, CargoAliasContext, CargoAliasEnvironment, CargoAliasOrigin, CargoAliasValue, discover_aliases,
+};
 use targets::{features, read_targets};
 pub(crate) use workspace::{Workspace, declaration, enclosing};
 
@@ -294,6 +298,7 @@ fn push(
         hook: false,
         requirements: vec!["cargo".into(), "rustc".into()],
         cargo: Some(details),
+        cargo_alias: None,
     });
 }
 

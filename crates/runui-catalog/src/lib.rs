@@ -48,6 +48,7 @@ pub struct Context {
     pub checkout: String,
     pub invocation_dir: String,
     pub environment: Environment,
+    pub cargo_global_aliases: bool,
 }
 
 impl Context {
@@ -57,6 +58,7 @@ impl Context {
             checkout: canonical(checkout),
             invocation_dir: canonical(project),
             environment: Environment::current(),
+            cargo_global_aliases: false,
         }
     }
 
@@ -80,12 +82,18 @@ pub struct Environment {
     pub path: Vec<PathBuf>,
     pub project_wrapper: bool,
     pub shell: Vec<String>,
+    pub cargo_aliases: runui_project::CargoAliasEnvironment,
 }
 
 impl Environment {
     pub fn current() -> Self {
         let path = std::env::var_os("PATH").map(|p| std::env::split_paths(&p).collect()).unwrap_or_default();
-        Self { path, project_wrapper: false, shell: vec!["/bin/sh".into(), "-c".into()] }
+        Self {
+            path,
+            project_wrapper: false,
+            shell: vec!["/bin/sh".into(), "-c".into()],
+            cargo_aliases: runui_project::CargoAliasEnvironment::current(),
+        }
     }
 
     pub fn with_shell(mut self, shell: &[String]) -> Self {
@@ -224,6 +232,8 @@ pub struct Entry {
     pub aliases: Vec<String>,
     #[serde(default)]
     pub cargo: Option<runui_project::CargoDetails>,
+    #[serde(default)]
+    pub cargo_alias: Option<runui_project::CargoAlias>,
     pub favorite: bool,
     pub favorite_names: Vec<String>,
     pub launches: u64,
@@ -279,6 +289,7 @@ impl Snapshot {
         favorites: &runui_favorites::Store,
         runs: &[Run],
         usage: &usage::Data,
+        cargo_global_aliases: bool,
     ) -> Self {
         let mut result = Self::default();
         let mut execution_rows = BTreeMap::<String, usize>::new();
@@ -308,6 +319,7 @@ impl Snapshot {
                 checkout: project.directory.clone(),
                 invocation_dir: canonical(invocation),
                 environment: environment.clone(),
+                cargo_global_aliases,
             };
             let mut snapshot = Self::build(&context, discovery, &favorites.for_tree(&project.directory), runs, usage)
                 .with_registration(project, indexed.branch.as_deref());
@@ -367,7 +379,14 @@ impl Snapshot {
         let mut tools = HashMap::<(String, String), Requirement>::new();
         let mut tool_stamps = HashMap::<String, String>::new();
         let mut cargo_environments = HashMap::<String, String>::new();
-        for file in &discovery.files {
+        let alias_directory = context.execution_directory(Source::Cargo, &context.project);
+        let aliases = runui_project::discover_cargo_aliases(&runui_project::CargoAliasContext {
+            directory: alias_directory,
+            checkout: context.checkout.clone(),
+            include_global: context.cargo_global_aliases,
+            environment: context.environment.cargo_aliases.clone(),
+        });
+        for file in discovery.files.iter().chain(&aliases.files) {
             if let Some(error) = &file.err {
                 snapshot.diagnostics.push(Diagnostic {
                     path: file.path.clone(),
@@ -378,7 +397,11 @@ impl Snapshot {
             }
             for command in &file.commands {
                 let directory = context.execution_directory(command.source, &file.dir);
-                let relative_entry = relative(&context.checkout, &canonical(&file.path));
+                let relative_entry = if command.cargo_alias.is_some() {
+                    ".cargo/aliases".into()
+                } else {
+                    relative(&context.checkout, &canonical(&file.path))
+                };
                 let relative_directory = relative(&context.checkout, &directory);
                 let native_name = command
                     .cargo
@@ -390,7 +413,9 @@ impl Snapshot {
                             .map(|target| target.name.as_str())
                             .unwrap_or_else(|| command.argv.get(1).map(String::as_str).unwrap_or(&command.name))
                     })
-                    .unwrap_or(&command.name);
+                    .unwrap_or_else(|| {
+                        command.cargo_alias.as_ref().map(|alias| alias.name.as_str()).unwrap_or(&command.name)
+                    });
                 let id = format!(
                     "cmd-v1-{}",
                     digest(&[
@@ -474,7 +499,9 @@ impl Snapshot {
                 }
                 if command.source == Source::Cargo {
                     dependencies.push_str(
-                        cargo_environments.entry(directory.clone()).or_insert_with(|| cargo_environment(&directory)),
+                        cargo_environments
+                            .entry(directory.clone())
+                            .or_insert_with(|| cargo_environment(&directory, &context.environment.cargo_aliases)),
                     );
                 }
                 let fingerprint = fingerprint(&directory, &recipe, &dependencies);
@@ -498,8 +525,16 @@ impl Snapshot {
                     ),
                     directory,
                     relative_directory,
-                    entry_file: Some(canonical(&file.path)),
-                    defining_file: Some(canonical(&command.defining_file)),
+                    entry_file: if command.cargo_alias.is_some() && file.path.is_empty() {
+                        None
+                    } else {
+                        Some(canonical(&file.path))
+                    },
+                    defining_file: if command.cargo_alias.is_some() && command.defining_file.is_empty() {
+                        None
+                    } else {
+                        Some(canonical(&command.defining_file))
+                    },
                     defining_line: command.defining_line,
                     variant: command.variant.clone(),
                     command: command.run.clone(),
@@ -508,6 +543,7 @@ impl Snapshot {
                     requirements,
                     aliases: command.aliases.clone(),
                     cargo: command.cargo.clone(),
+                    cargo_alias: command.cargo_alias.clone(),
                     favorite: false,
                     favorite_names: Vec::new(),
                     launches: 0,
@@ -521,7 +557,7 @@ impl Snapshot {
                 snapshot.entries.push(entry);
             }
         }
-        for problem in &discovery.diagnostics {
+        for problem in discovery.diagnostics.iter().chain(&aliases.diagnostics) {
             snapshot.diagnostics.push(Diagnostic {
                 path: problem.path.clone(),
                 message: problem.message.clone(),
@@ -529,7 +565,7 @@ impl Snapshot {
                 kind: "discovery".into(),
             });
         }
-        for notice in &discovery.notices {
+        for notice in discovery.notices.iter().chain(&aliases.notices) {
             snapshot.diagnostics.push(Diagnostic {
                 path: notice.path.clone(),
                 message: notice.message.clone(),
@@ -580,6 +616,7 @@ impl Snapshot {
                 requirements: Vec::new(),
                 aliases: Vec::new(),
                 cargo: None,
+                cargo_alias: None,
                 favorite: true,
                 favorite_names: vec![favorite.label().into()],
                 launches: 0,
@@ -636,6 +673,7 @@ impl Snapshot {
                 requirements: Vec::new(),
                 aliases: Vec::new(),
                 cargo: None,
+                cargo_alias: None,
                 favorite: false,
                 favorite_names: Vec::new(),
                 launches: 0,
@@ -701,6 +739,7 @@ impl Snapshot {
                 requirements: Vec::new(),
                 aliases: Vec::new(),
                 cargo: None,
+                cargo_alias: None,
                 favorite: false,
                 favorite_names: Vec::new(),
                 launches: 0,
@@ -757,6 +796,11 @@ impl Snapshot {
             && entry.fingerprint != expected
         {
             return Err(PrepareError::Stale { expected: expected.into(), actual: entry.fingerprint.clone() });
+        }
+        if let Some(alias) = &entry.cargo_alias
+            && let Some(reason) = &alias.disabled_reason
+        {
+            return Err(PrepareError::Inputs(format!("Cargo alias {:?}: {}", alias.name, reason)));
         }
         let mut recipe = entry.recipe.clone();
         if let Some(timeout) = inputs.timeout_seconds {
@@ -918,29 +962,21 @@ fn relative(root: &str, path: &str) -> String {
 }
 /// Cargo reads config from invocation ancestors, not manifest ancestors.
 /// Keep these metadata/env selectors private; only their digest is exposed.
-fn cargo_environment(directory: &str) -> String {
+fn cargo_environment(directory: &str, environment: &runui_project::CargoAliasEnvironment) -> String {
     use std::os::unix::fs::MetadataExt;
     let mut paths = Vec::new();
+    let config = |directory: &Path| {
+        let legacy = directory.join("config");
+        if legacy.exists() { legacy } else { directory.join("config.toml") }
+    };
     for dir in Path::new(directory).ancestors().take(64) {
-        for file in [
-            ".cargo/config",
-            ".cargo/config.toml",
-            "rust-toolchain",
-            "rust-toolchain.toml",
-            "mise.toml",
-            ".mise.toml",
-            ".tool-versions",
-        ] {
+        paths.push(config(&dir.join(".cargo")));
+        for file in ["rust-toolchain", "rust-toolchain.toml", "mise.toml", ".mise.toml", ".tool-versions"] {
             paths.push(dir.join(file));
         }
     }
-    let home = std::env::var_os("CARGO_HOME")
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".cargo")));
-    if let Some(home) = home {
-        for file in ["config", "config.toml"] {
-            paths.push(Path::new(directory).join(&home).join(file));
-        }
+    if let Some(home) = &environment.cargo_home {
+        paths.push(config(&Path::new(directory).join(home)));
     }
     let rustup = std::env::var_os("RUSTUP_HOME")
         .map(PathBuf::from)
