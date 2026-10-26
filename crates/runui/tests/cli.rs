@@ -493,11 +493,16 @@ fn workspace_scope_finds_deep_siblings_and_keeps_their_launch_context() {
     assert_eq!(code, EXIT_OK, "{error}");
     let path = std::path::Path::new(&engine).join("cwd.txt");
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-    while !path.exists() {
+    let actual = loop {
+        if let Ok(actual) = fs::read_to_string(&path)
+            && !actual.trim().is_empty()
+        {
+            break actual;
+        }
         assert!(std::time::Instant::now() < deadline);
         std::thread::sleep(std::time::Duration::from_millis(20));
-    }
-    assert!(runui_catalog::same_directory(fs::read_to_string(path).unwrap().trim(), &engine));
+    };
+    assert!(runui_catalog::same_directory(actual.trim(), &engine));
 }
 
 #[test]

@@ -109,7 +109,7 @@ impl Environment {
         if self.resolve(program, dir).is_some() { Availability::OnPath } else { Availability::Missing }
     }
 
-    fn resolve(&self, program: &str, dir: &str) -> Option<String> {
+    pub(crate) fn resolve(&self, program: &str, dir: &str) -> Option<String> {
         if self.project_wrapper {
             return None;
         }

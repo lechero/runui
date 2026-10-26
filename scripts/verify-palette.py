@@ -108,7 +108,7 @@ with tempfile.TemporaryDirectory(prefix='runui-palette-') as temporary:
                 shows('Lifecycle hook')
                 shot('runui-composer-hooks',120,36)
                 key('M-i')
-                wait(lambda: any(message in plain() for message in ('wrapper remains unverified', 'version verified', 'unavailable or unsupported')), 'explicit native Composer check did not complete')
+                wait(lambda: any(message in plain() for message in ('wrapper remains unverified', 'version verified', 'unavailable or unsupported', 'is unavailable', 'script shim')), 'explicit native Composer check did not complete')
                 assert not metadata(), 'native inspection created an unread run'
                 shot('runui-composer-native',120,36)
                 key('Escape','C-p')

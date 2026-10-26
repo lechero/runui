@@ -10,7 +10,9 @@ use serde::Serialize;
 use crate::{Entry, Kind, Recipe};
 
 mod cargo;
+mod environment;
 pub use cargo::CargoMetadata;
+pub use environment::EnvironmentReport;
 
 #[derive(Debug, Serialize)]
 pub struct Probe {
@@ -27,13 +29,20 @@ pub struct Report {
     pub ready: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cargo: Option<CargoMetadata>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub environment: Option<EnvironmentReport>,
 }
 
-/// Only provider-owned version/metadata probes run here. A shell wrapper may provision
-/// tools or evaluate project config; until it has an offline contract we leave
-/// its availability unknown rather than silently bypassing it.
+/// Only provider-owned version/metadata probes run here. Supported mise wrappers
+/// resolve installed tools in safe mode; other wrappers stay explicitly unchecked.
 pub fn check(entry: &Entry, cancel: &AtomicBool) -> Report {
-    let skip = |message: &str| Report { checked: Vec::new(), skipped: Some(message.into()), ready: false, cargo: None };
+    let skip = |message: &str| Report {
+        checked: Vec::new(),
+        skipped: Some(message.into()),
+        ready: false,
+        cargo: None,
+        environment: None,
+    };
     if !matches!(entry.source.as_str(), "composer" | "cargo") || !matches!(entry.kind, Kind::Command | Kind::Hook) {
         return skip("Native checks support Composer scripts and generated Cargo definitions.");
     }
@@ -45,13 +54,40 @@ pub fn check(entry: &Entry, cancel: &AtomicBool) -> Report {
     let Recipe::Tool { argv, shell, .. } = &entry.recipe else {
         return skip("No native tool recipe.");
     };
-    if !shell.is_empty() && shell != &["/bin/sh", "-c"] {
-        return skip(
-            "Project shell wrapper remains unverified: native inspection does not activate wrappers or provision tools.",
-        );
+    let mut report = Report { checked: Vec::new(), skipped: None, ready: false, cargo: None, environment: None };
+    let native_environment = if !shell.is_empty() && shell != &["/bin/sh", "-c"] {
+        match environment::resolve(entry, &mut report, cancel) {
+            Ok(environment) => environment,
+            Err(error) => {
+                report.skipped = Some(error.to_string());
+                return report;
+            }
+        }
+    } else {
+        environment::NativeEnvironment::default()
+    };
+    let mut selected = entry.clone();
+    if report.environment.is_some() {
+        for requirement in &mut selected.requirements {
+            requirement.resolved_path = native_environment.resolve(entry, &requirement.program);
+            let Some(path) = &requirement.resolved_path else {
+                report.skipped = Some(format!(
+                    "{} is unavailable in the safe installed-tool environment; static discovery was kept",
+                    requirement.program
+                ));
+                return report;
+            };
+            if matches!(requirement.program.as_str(), "php" | "cargo" | "rustc")
+                && let Err(error) = environment::binary(path)
+            {
+                report.skipped = Some(format!("{}: {error}", requirement.program));
+                return report;
+            }
+        }
     }
+    let entry = &selected;
     if entry.source == "cargo" {
-        return cargo::check(entry, cancel);
+        return cargo::check_in(entry, cancel, report, &native_environment);
     }
     let Some(position) = argv.iter().position(|arg| arg == "run-script") else {
         return skip("Invalid Composer recipe.");
@@ -59,13 +95,12 @@ pub fn check(entry: &Entry, cancel: &AtomicBool) -> Report {
     let mut composer = argv[..position].to_vec();
     for requirement in &entry.requirements {
         if let Some(path) = &requirement.resolved_path
-            && let Some(part) = composer.iter_mut().skip(2).find(|arg| **arg == requirement.program)
+            && let Some(part) = composer.iter_mut().find(|arg| **arg == requirement.program)
         {
             *part = path.clone();
         }
     }
     composer.extend(["--no-plugins", "--no-scripts", "--no-ansi", "--no-interaction", "--version"].map(str::to_string));
-    let mut checked = Vec::new();
     let php = entry
         .requirements
         .iter()
@@ -74,10 +109,12 @@ pub fn check(entry: &Entry, cancel: &AtomicBool) -> Report {
         .unwrap_or_else(|| "php".into());
     for (tool, args) in [("php", vec![php, "--version".into()]), ("composer", composer)] {
         if cancel.load(std::sync::atomic::Ordering::Relaxed) {
-            return Report { checked, skipped: Some("Native inspection cancelled.".into()), ready: false, cargo: None };
+            report.skipped = Some("Native inspection cancelled.".into());
+            return report;
         }
         let mut command = Command::new(&args[0]);
         command.args(&args[1..]).current_dir(&entry.directory).env("COMPOSER_DISABLE_NETWORK", "1");
+        native_environment.apply(&mut command);
         let (output, error) = match inspection::run(&mut command, Limits::default(), cancel) {
             Ok(output) => (Some(output), None),
             Err(error) => (None, Some(error.to_string())),
@@ -104,7 +141,8 @@ pub fn check(entry: &Entry, cancel: &AtomicBool) -> Report {
                     }
                 })
         });
-        checked.push(Probe { tool: tool.into(), argv: args, output, error, supported });
+        report.checked.push(Probe { tool: tool.into(), argv: args, output, error, supported });
     }
-    Report { ready: checked.iter().all(|probe| probe.supported), checked, skipped: None, cargo: None }
+    report.ready = report.checked.iter().all(|probe| probe.supported);
+    report
 }

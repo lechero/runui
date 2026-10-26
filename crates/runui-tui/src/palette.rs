@@ -414,6 +414,19 @@ impl Palette {
             if let Some(reason) = &report.skipped {
                 lines.push(safe(reason));
             }
+            if let Some(environment) = &report.environment {
+                lines.push("mise: safe installed-tool inspection · full launch environment unchecked".into());
+                lines.push("Offline · automatic installs and hooks disabled · private values withheld".into());
+                for tool in &environment.tools {
+                    lines.push(format!("Installed {} {}", safe(&tool.name), safe(&tool.version)));
+                    if self.detail {
+                        lines.push(format!("  {}", safe(&tool.install_path)));
+                    }
+                }
+                if self.detail {
+                    lines.extend(environment.limitations.iter().map(|message| safe(message)));
+                }
+            }
             if let Some(cargo) = &report.cargo {
                 lines.push(format!("Native workspace: {}", safe(&cargo.workspace_root)));
                 lines.push("Inspection: offline · locked · installed compiler · compiler wrappers disabled".into());
@@ -463,6 +476,10 @@ impl Palette {
                         "metadata verified"
                     } else if probe.tool.starts_with("rustup which ") {
                         "installed tool located"
+                    } else if probe.tool == "mise ls" {
+                        "installed selections read"
+                    } else if probe.tool == "mise env" {
+                        "safe tool environment resolved"
                     } else {
                         "version verified"
                     }
