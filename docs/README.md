@@ -13,7 +13,7 @@ The pages are static HTML and CSS with no JavaScript, external fonts, or build s
 
 ## What the guide covers
 
-- [Four panels](index.html#overview): Favorites, Project, Runs, and Log.
+- [Panels](index.html#overview): Favorites, Project, Runs, Log, and Agents (`5`, installs runui's MCP server for agent CLIs; not yet in the captures).
 - [Everyday use](index.html#workflow): discover, favorite, run, leave, return, and stop.
 - [Command catalog](command-catalog.md): Project/Workspace/Registered search, recent recall, project picker, diagnostics, Composer/Cargo, CLI IDs and preparation.
 - [Private shell recall](shell-recall.md): opt-in fish/Zsh/Bash sources, editable insertion, explicit replay and deliberate favorite promotion.

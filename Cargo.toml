@@ -11,6 +11,7 @@ rust-version = "1.88"
 
 [workspace.dependencies]
 # the crates here, one a Go package of runui
+runui-agents = { path = "crates/runui-agents" }
 runui-catalog = { path = "crates/runui-catalog" }
 runui-core = { path = "crates/runui-core" }
 runui-tea = { path = "crates/runui-tea" }

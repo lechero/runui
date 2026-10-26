@@ -43,7 +43,7 @@ runui ps                    # show runs from every folder, live ones first
 
 Opening inside `src/` or another subfolder selects the nearest parent with a supported project file, up to the repository root. Discovery includes folders three levels below the selected project; commands from `apps/web` appear with their folder and run there.
 
-## Four panels, one workspace
+## Five panels, one workspace
 
 | Key | Panel | What's there |
 | --- | --- | --- |
@@ -51,6 +51,7 @@ Opening inside `src/` or another subfolder selects the nearest parent with a sup
 | `2` | **Project** | Taskfile, package.json, Makefile, Compose, Maven, Composer, and Cargo tabs. Filter a tab with `/`. |
 | `3` | **Runs** | **Here**, **Everywhere**, and an **Agents** tab once MCP runs exist. Read, stop, or restart the same processes. |
 | `4` | **Log** | **Unread** results needing a look and **All** retained finished attempts, across every folder. |
+| `5` | **Agents** | The agent CLIs on your PATH (Claude Code, Codex, GitHub Copilot, Gemini CLI, Qwen Code, Amp) and whether runui's MCP server is installed for each. `enter` installs or removes it. |
 
 Use `tab` / `shift+tab` between panels and `[` / `]` between a panel's tabs. Press `?` for the full in-app key sheet. Mouse selection and scrolling work too.
 
@@ -133,7 +134,19 @@ Switch to **All** with `]` to revisit reviewed and stopped runs, newest finish f
 
 Runui includes a local **MCP stdio server**. An agent can discover exact commands and working directories, start persistent runs, follow output, and stop processes. You can inspect those same runs in **Runs → Agents**, identified by the MCP client's name, and review their finished results in Log.
 
-Configure your client's MCP server settings with the absolute binary and project paths. For clients using `mcpServers`:
+The quickest setup is in runui: press `5`, pick your agent CLI, and press `enter`. Runui asks first, then runs the CLI's own command, so the CLI writes its settings itself:
+
+| CLI | Installs with | Settings read |
+| --- | --- | --- |
+| Claude Code | `claude mcp add --scope user runui -- RUNUI mcp` | `~/.claude.json` (`CLAUDE_CONFIG_DIR`) |
+| Codex | `codex mcp add runui -- RUNUI mcp` | `~/.codex/config.toml` (`CODEX_HOME`) |
+| GitHub Copilot | `copilot mcp add runui -- RUNUI mcp` | `~/.copilot/mcp-config.json` (`COPILOT_HOME`) |
+| Gemini CLI, Qwen Code | `gemini mcp add --scope user runui RUNUI mcp` | `~/.gemini/settings.json`, `~/.qwen/settings.json` |
+| Amp | `amp mcp add runui -- RUNUI mcp` | `~/.config/amp/settings.json` (`XDG_CONFIG_HOME`) |
+
+`RUNUI` is the absolute path of `runui` on your PATH. The server is installed for your user, with no `-C`: each agent starts `runui mcp` in the folder it works in, and gets that project's commands. `enter` on an installed CLI removes it with the CLI's `mcp remove`. A `runui` entry with another command, such as an older path or a pinned `-C`, is marked `!`. Runui only reads the settings files; it never writes them.
+
+To configure a client yourself, use the absolute binary and project paths. For clients using `mcpServers`:
 
 ```json
 {
@@ -191,7 +204,7 @@ If your shell and tmux disagree, use the absolute path from `command -v runui` i
 
 | Keys | Action |
 | --- | --- |
-| `1`–`4`, `tab` / `shift+tab` | Favorites, Project, Runs, Log. |
+| `1`–`5`, `tab` / `shift+tab` | Favorites, Project, Runs, Log, Agents. |
 | `[` / `]` | Switch the current panel's tabs. |
 | `j` / `k`, `g` / `G` | Move through rows. |
 | `/`, `esc` | Filter the current tab; clear the filter. |

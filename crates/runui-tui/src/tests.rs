@@ -183,6 +183,17 @@ impl World {
     fn add(&self, f: Favorite) {
         self.favs_now().add(&self.dir, f).unwrap();
     }
+
+    /// agents are the agent CLIs as a test has them: none on the PATH but
+    /// the ones it puts in its bin folder, their settings in its home.
+    fn agents(&self) -> runui_agents::Agents {
+        runui_agents::Agents {
+            home: self.home.clone(),
+            path: filepath::join(&[&self.home, "bin"]),
+            vars: Default::default(),
+            runui: "/opt/runui".into(),
+        }
+    }
 }
 
 impl Drop for World {
@@ -218,6 +229,7 @@ fn open(w: &World) -> Harness<'_> {
     let mut cfg = Config::new(&w.dir, &w.dir, &w.home, w.favs_now(), w.runs.clone());
     cfg.catalog_environment = runui_catalog::Environment::default().with_shell(&w.runs.execution_shell());
     cfg.catalog_environment.cargo_aliases.cargo_home = Some(std::path::Path::new(&w.home).join(".cargo"));
+    cfg.agents = w.agents();
     let mut h = Harness { m: Model::new(cfg), w };
     h.send(tea::msg(WindowSizeMsg { width: 120, height: 36 }));
     h
@@ -1271,6 +1283,7 @@ fn workspace_palette_keeps_project_panels_and_executes_in_the_selected_members_d
     let mut cfg = Config::new(&web, &world.dir, &world.home, world.favs_now(), world.runs.clone());
     cfg.catalog_environment = runui_catalog::Environment::default().with_shell(&world.runs.execution_shell());
     cfg.catalog_environment.cargo_aliases.cargo_home = Some(std::path::Path::new(&world.home).join(".cargo"));
+    cfg.agents = world.agents();
     let mut h = Harness { m: Model::new(cfg), w: &world };
     h.send(tea::msg(WindowSizeMsg { width: 120, height: 36 }));
     h.keys(&["ctrl+p"]);
@@ -1389,4 +1402,125 @@ fn favorites_saved_from_the_palette_keep_the_existing_folder_key() {
     assert!(favorites[0].dir.is_empty());
     h.keys(&["esc"]);
     assert!(h.m.a.panels[PANEL_FAVORITES].views[0].all.iter().any(|item| item.command == "make build"));
+}
+
+/// agent_cli puts an agent CLI on a test's PATH: a script.
+fn agent_cli(w: &World, name: &str, body: &str) {
+    use std::os::unix::fs::PermissionsExt;
+    let bin = filepath::join(&[&w.home, "bin"]);
+    fs::create_dir_all(&bin).unwrap();
+    let path = filepath::join(&[&bin, name]);
+    fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+#[test]
+fn agents_panel_installs_runui_mcp_for_a_cli_after_asking_and_removes_it_again() {
+    let w = new_world();
+    let config = filepath::join(&[&w.home, ".claude.json"]);
+    let log = filepath::join(&[&w.home, "claude-args"]);
+    // a claude that keeps its settings as the real one does
+    agent_cli(
+        &w,
+        "claude",
+        &format!(
+            r#"echo "$@" >> '{log}'
+case "$2" in
+add) printf '{{"mcpServers":{{"runui":{{"command":"%s","args":["%s"]}}}}}}' "$7" "$8" > '{config}'; echo "Added stdio MCP server runui to user config";;
+remove) echo '{{"mcpServers":{{}}}}' > '{config}'; echo "Removed MCP server runui from user config";;
+esac"#
+        ),
+    );
+    agent_cli(&w, "copilot", "exit 0");
+    let mut h = open(&w);
+    h.keys(&["5"]);
+    assert_eq!(h.m.a.cur, PANEL_AGENTS);
+    let s = h.screen();
+    for want in [
+        "[5]─Agents",
+        "○ Claude Code  enter adds runui MCP",
+        "○ GitHub Copilot  enter adds runui MCP",
+        "Codex  not installed",
+        "Claude Code › runui MCP",
+        "$ claude mcp add --scope user runui -- /opt/runui mcp",
+        "runui's MCP server isn't installed",
+        "enter installs it",
+    ] {
+        assert!(s.contains(want), "the screen hasn't {want:?}:\n{s}");
+    }
+    let names: Vec<_> = h.m.a.shown().shown.iter().map(|it| it.name.as_str()).collect();
+    assert_eq!(names[..3], ["Claude Code", "GitHub Copilot", "Codex"], "the CLIs on the PATH come first");
+
+    h.keys(&["enter"]);
+    assert!(h.screen().contains("Install runui's MCP server for Claude Code?"), "enter didn't ask:\n{}", h.screen());
+    h.keys(&["n"]);
+    assert!(h.m.a.confirm.is_none() && !std::path::Path::new(&log).exists(), "n ran claude");
+
+    h.keys(&["enter", "y"]);
+    let s = h.screen();
+    for want in [
+        "✓ runui's MCP server is installed for Claude Code",
+        "✓ Claude Code  runui MCP",
+        "✓ runui's MCP server is installed: /opt/runui mcp",
+        "✓ installed",
+        "Added stdio MCP server runui to user config",
+        "$ claude mcp remove --scope user runui",
+    ] {
+        assert!(s.contains(want), "after installing, the screen hasn't {want:?}:\n{s}");
+    }
+    h.keys(&["y"]);
+    assert!(h.screen().contains("copied: claude mcp remove --scope user runui"));
+
+    h.keys(&["enter"]);
+    assert!(h.screen().contains("Remove runui's MCP server from Claude Code?"));
+    h.keys(&["y"]);
+    assert!(h.screen().contains("runui's MCP server is removed from Claude Code"), "{}", h.screen());
+    assert!(h.screen().contains("○ Claude Code  enter adds runui MCP"));
+    assert_eq!(
+        fs::read_to_string(&log).unwrap(),
+        "mcp add --scope user runui -- /opt/runui mcp\nmcp remove --scope user runui\n"
+    );
+    assert!(w.runs.list().unwrap().is_empty(), "changing an agent started a run");
+}
+
+#[test]
+fn agents_panel_explains_a_missing_cli_a_stale_entry_and_a_failure() {
+    let w = new_world();
+    agent_cli(&w, "copilot", "echo 'Error: config is locked' >&2; exit 1");
+    let settings = filepath::join(&[&w.home, ".copilot", "mcp-config.json"]);
+    fs::create_dir_all(filepath::join(&[&w.home, ".copilot"])).unwrap();
+    fs::write(
+        &settings,
+        r#"{"mcpServers":{"runui":{"type":"local","command":"/old/runui","args":["mcp","-C","/p"]}}}"#,
+    )
+    .unwrap();
+    let mut h = open(&w);
+    h.keys(&["5"]);
+    h.select_row("Codex");
+    h.keys(&["enter"]);
+    assert!(h.m.a.confirm.is_none() && h.m.a.note_bad, "enter on a CLI that isn't there asked");
+    assert!(h.screen().contains("codex isn't on your PATH: install Codex first"));
+
+    h.select_row("GitHub Copilot");
+    let s = h.screen();
+    for want in [
+        "! GitHub Copilot  other runui MCP",
+        "! runui is there as another command: /old/runui mcp -C /p",
+        "$ copilot mcp remove runui",
+        "enter removes it",
+    ] {
+        assert!(s.contains(want), "the screen hasn't {want:?}:\n{s}");
+    }
+    for k in ["R", "m", "D"] {
+        h.keys(&[k]);
+        assert!(h.screen().contains("enter installs runui's MCP server for an agent CLI"), "{k} on a CLI");
+    }
+    assert!(w.favs_now().for_dir(&w.dir).is_empty() && w.runs.list().unwrap().is_empty());
+
+    h.keys(&["enter", "y"]);
+    let s = h.screen();
+    for want in ["✗ couldn't remove it from GitHub Copilot: Error: config is locked", "✗ couldn't remove it ·"] {
+        assert!(s.contains(want), "the screen hasn't {want:?}:\n{s}");
+    }
+    assert!(fs::read_to_string(&settings).unwrap().contains("/old/runui"), "a failure changed the settings");
 }

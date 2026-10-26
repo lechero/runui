@@ -4,6 +4,8 @@ Conventional commits, newest release first. Unreleased changes sit on `main`.
 
 ## Unreleased
 
+- feat: an **Agents** panel (`5`) lists the agent CLIs runui knows (Claude Code, Codex, GitHub Copilot, Gemini CLI, Qwen Code, Amp), the ones on your PATH first, and whether runui's MCP server is installed for each: ✓ installed, `!` a `runui` entry with another command, ○ not yet. `enter` asks, then installs it for your user with the CLI's own `mcp add` (`runui mcp`, no `-C`, so it serves the folder the agent works in) or removes it with `mcp remove`. The pane shows the command, the CLI's settings file and what the CLI printed. New crate `runui-agents`; agents' settings are only read.
+
 - Refresh the README, illustrated guide and brand kit for Log, Agents, MCP and tmux review state. Regenerate current screenshots, add three real GIF/video tours with playback controls and transcripts, and provide `task docs:capture` for repeatable captures.
 
 - Replace Errors with a global Log (`4`): Unread gathers successful, failed, and lost results counted in tmux; All keeps finished history, including reviewed and stopped runs. Viewing a result clears only its notice, and zero tmux counts stay hidden. Filter by result, folder, command, or agent; rerun from Log to follow the new attempt in Runs.

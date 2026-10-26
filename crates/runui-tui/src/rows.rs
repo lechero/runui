@@ -13,6 +13,8 @@ pub(crate) enum Kind {
     Command,
     /// a command runui started
     Run,
+    /// an agent CLI, runui's MCP server installed for it or not
+    Agent,
 }
 
 /// Item is a row in a panel.
@@ -22,7 +24,8 @@ pub(crate) struct Item {
     pub(crate) name: String,
     pub(crate) command: String,
     pub(crate) desc: String,
-    /// task, npm, make, compose or maven; "" for a command of your own
+    /// task, npm, make, compose or maven; "" for a command of your own; an
+    /// agent CLI's command
     pub(crate) source: String,
     /// where it runs
     pub(crate) dir: String,
@@ -43,6 +46,7 @@ impl Item {
             Kind::Run => format!("run {}", self.run.id),
             Kind::Favorite => format!("favorite {}\x00{}", self.rel, self.command),
             Kind::Command => format!("command {}\x00{}", self.dir, self.command),
+            Kind::Agent => format!("agent {}", self.source),
         }
     }
 
