@@ -35,3 +35,35 @@ jobs:
         run: ruby -c Formula/runui.rb
       - name: Homebrew style
         run: brew style Formula/runui.rb
+
+  composer:
+    name: native Composer ${{ matrix.composer.version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        composer:
+          - version: 2.2.30
+            sha256: 8c2b4478b64f8f7cdf1574838fdb0033b29049ca821dad452db7a3dcfcdbffc2
+          - version: 2.10.3
+            sha256: 7a2d379d5b8ffdaa028580ef26494c36d2feef4b178d3dd1473a4dbc5e17c8d6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: PHP and pinned official Composer
+        env:
+          COMPOSER_VERSION: ${{ matrix.composer.version }}
+          COMPOSER_SHA256: ${{ matrix.composer.sha256 }}
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y php-cli php-mbstring
+          curl --fail --location --retry 3 "https://getcomposer.org/download/$COMPOSER_VERSION/composer.phar" -o "$RUNNER_TEMP/composer.phar"
+          echo "$COMPOSER_SHA256  $RUNNER_TEMP/composer.phar" | sha256sum --check --strict
+      - name: Build
+        run: cargo build -p runui
+      - name: Disposable native contracts
+        env:
+          RUNUI_BIN: ${{ github.workspace }}/target/debug/runui
+          RUNUI_COMPOSER_PHAR: ${{ runner.temp }}/composer.phar
+        run: python3 scripts/verify-composer.py

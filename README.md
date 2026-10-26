@@ -12,7 +12,7 @@ Runui brings your project commands, persistent processes, finished history, and 
 
 | Find | Run | Review | Share with an agent |
 | --- | --- | --- | --- |
-| Five command sources, nested folders, filters, and per-project favorites. | Live output under a supervisor that outlives the app and terminal. | A global Log of successes, failures, stopped runs, and repeated attempts. | Six local MCP tools using the same processes, metadata, and output. |
+| Six command sources, nested folders, filters, and per-project favorites. | Live output under a supervisor that outlives the app and terminal. | A global Log of successes, failures, stopped runs, and repeated attempts. | Six local MCP tools using the same processes, metadata, and output. |
 
 ## Install & open
 
@@ -32,7 +32,7 @@ cd runui
 cargo install --path crates/runui --root ~/.local --locked
 ```
 
-Or run `task install` from the clone. Put `~/.local/bin` on your `PATH`. Discovered commands use the project's own tools: Task, a package manager, Make, Docker Compose, or Maven.
+Or run `task install` from the clone. Put `~/.local/bin` on your `PATH`. Discovered commands use the project's own tools: Task, a package manager, Make, Docker Compose, Maven, or PHP/Composer.
 
 ```sh
 runui                       # open the current project
@@ -48,7 +48,7 @@ Opening inside `src/` or another subfolder selects the nearest parent with a sup
 | Key | Panel | What's there |
 | --- | --- | --- |
 | `1` | **Favorites** | Starred project commands and shell commands of your own, saved per project. |
-| `2` | **Project** | Taskfile, package.json, Makefile, Compose, and Maven tabs. Filter a tab with `/`. |
+| `2` | **Project** | Taskfile, package.json, Makefile, Compose, Maven, and Composer tabs. Filter a tab with `/`. |
 | `3` | **Runs** | **Here**, **Everywhere**, and an **Agents** tab once MCP runs exist. Read, stop, or restart the same processes. |
 | `4` | **Log** | **Unread** results needing a look and **All** retained finished attempts, across every folder. |
 
@@ -63,6 +63,7 @@ Use `tab` / `shift+tab` between panels and `[` / `]` between a panel's tabs. Pre
 | `Makefile` | Targets, with `##` comments as descriptions. |
 | Compose files | `up`, `up --build`, `down`, `ps`, `logs -f`, and `up` for individual services. |
 | `pom.xml` | Install, verify, test, and non-default profile builds; uses `mvnw` when present. |
+| `composer.json` | Native scripts, descriptions, and aliases; arrays, callbacks and `@...` helpers stay with Composer. Lifecycle hooks require `kind:hook` in the palette. |
 
 ![Root scripts and apps/web scripts in the Project panel](docs/assets/scripts.png)
 
@@ -79,7 +80,11 @@ runui find --scope registered test --json
 runui run --scope registered --project PROJECT_ID COMMAND_ID --json
 ```
 
-Press `m` in a panel to star a command, or `a` to save your own named shell command. Runui notices edits to files it reads; `r` rescans, including newly added nested files. Composer, Cargo, shell recall, and input presets remain in the [integration plan](docs/command-discovery-plan.md).
+![Real Composer alias search, explicit hooks, and missing-tool readiness checks](docs/assets/composer-tour.gif)
+
+Composer scripts keep their native behavior and cwd. Aliases search the canonical script; exact lifecycle events stay out of ordinary results (use `kind:hook source:composer`). PHP and Composer availability appear separately. `alt+i` explicitly checks native versions, or use `runui inspect --native --json ID`; opening/searching executes nothing. Checks support Composer 2.2+ and have a five-second/64-KiB limit per tool. Project shell wrappers remain unverified until an offline inspection contract is available. [Composer settings and timeout options](docs/command-catalog.md#composer).
+
+Press `m` in a panel to star a command, or `a` to save your own named shell command. Runui notices edits to files it reads; `r` rescans, including newly added nested files. Cargo, shell recall, and input presets remain in the [integration plan](docs/command-discovery-plan.md).
 
 Declared pnpm/npm/Yarn workspace packages can be deeper than three levels. Workspace scope searches the enclosing declaration while each command keeps its own cwd. Exclusions control package membership; `.runuiignore` uses Git-ignore syntax to exclude discovery paths, including declared members. Repository `.gitignore` files apply to incidental folders; a declared member overrides them with a notice. Nested repositories, symlinks, dependencies and generated folders stay traversal boundaries.
 
@@ -179,6 +184,7 @@ If your shell and tmux disagree, use the absolute path from `command -v runui` i
 | `/`, `esc` | Filter the current tab; clear the filter. |
 | `ctrl+p` | Open the palette; `tab` switches Commands / Recent, `alt+s` switches scope, `alt+p` opens projects. |
 | `ctrl+v`, `f2` in the palette | Scrollable command details or discovery diagnostics. |
+| `alt+i` in the palette | Explicit native Composer/PHP version checks, with limits and no unread run. |
 | `enter` | Run a command; on a run, focus its output. |
 | `s` / `R` | Stop or restart a run. |
 | `m` / `a` / `e` / `D` | Star, add, edit, or remove; `D` also forgets an ended run. |
@@ -209,7 +215,7 @@ task build          # build bin/runui
 task run            # build and open the current folder
 task test           # workspace tests and clippy
 task lint           # clippy and rustfmt checks
-task docs:capture   # rebuild screenshots, 3 GIFs, and 3 playable videos
+task docs:capture   # rebuild screenshots, 4 GIFs, and 4 playable videos
 ```
 
 Captures need Python 3.10+, Pillow, tmux, Task, and ffmpeg. They exercise the real Rust app and all six MCP tools in temporary projects and private tmux sessions. Your favorites and run history are untouched. [Media maintenance](docs/README.md) covers regeneration and local preview.

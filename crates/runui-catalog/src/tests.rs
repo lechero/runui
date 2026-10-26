@@ -264,6 +264,84 @@ fn arguments_round_trip_literally_with_the_exact_working_directory() {
 }
 
 #[test]
+fn composer_aliases_hooks_readiness_and_timeout_keep_one_native_definition() {
+    let (_temp, mut context) = fixture();
+    write(
+        &context,
+        "composer.json",
+        r#"{"scripts":{"check":"@php check.php","pre-deploy":"true","post-install-cmd":"true"},"scripts-aliases":{"check":["verify"]}}"#,
+    );
+    let composer = script(&context, "composer", "printf '%s\\0' \"$COMPOSER\" \"$PWD\" \"$@\"");
+    context.environment.path = vec![Path::new(&composer).parent().unwrap().to_path_buf()];
+    let before = snapshot(&context);
+    let mut query = Query::parse("source:composer").unwrap();
+    query.commands();
+    assert_eq!(before.search(&query).len(), 2);
+    let mut hook = Query::parse("source:composer kind:hook").unwrap();
+    hook.commands();
+    assert_eq!(before.search(&hook)[0].entry.name, "post-install-cmd");
+    let mut alias = Query::parse("source:composer verify").unwrap();
+    alias.commands();
+    let entry = before.search(&alias)[0].entry;
+    assert_eq!(entry.name, "check");
+    assert_eq!(entry.aliases, ["verify"]);
+    assert_eq!(entry.availability, Availability::Missing);
+    assert_eq!(entry.requirements[0].availability, Availability::OnPath);
+    assert_eq!(entry.requirements[1].program, "php");
+    assert_eq!(entry.requirements[1].availability, Availability::Missing);
+    let args = vec!["--flag", "a space", "'\"$();`touch NEVER`", "", "line\nbreak", "☕"]
+        .into_iter()
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    let prepared = before
+        .prepare(&entry.id, None, &Inputs { args: args.clone(), timeout_seconds: Some(0), ..Inputs::default() })
+        .unwrap();
+    let output = Command::new("/bin/sh")
+        .args(["-c", &prepared.command])
+        .current_dir(&prepared.directory)
+        .env("PATH", format!("{}:/usr/bin:/bin", context.project))
+        .env("COMPOSER", "wrong.json")
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let values: Vec<_> =
+        output.stdout.split(|byte| *byte == 0).map(|part| String::from_utf8(part.into()).unwrap()).collect();
+    let mut expected = vec![
+        canonical(&Path::new(&context.project).join("composer.json").to_string_lossy()),
+        context.project.clone(),
+        "run-script".into(),
+        "--timeout=0".into(),
+        "--".into(),
+        "check".into(),
+    ];
+    expected.extend(args);
+    expected.push(String::new());
+    assert_eq!(values, expected);
+    assert!(!Path::new(&context.project).join("NEVER").exists());
+    script(&context, "php", "exit 0");
+    let after = snapshot(&context);
+    let updated = after.get(&entry.id).unwrap();
+    assert_eq!(updated.availability, Availability::OnPath);
+    assert_ne!(updated.fingerprint, entry.fingerprint);
+    assert!(matches!(
+        after.prepare(&entry.id, Some(&entry.fingerprint), &Inputs::default()),
+        Err(PrepareError::Stale { .. })
+    ));
+    context.environment.project_wrapper = true;
+    assert_eq!(snapshot(&context).get(&entry.id).unwrap().availability, Availability::ProjectEnvironment);
+    write(&context, "Makefile", "test:\n");
+    let snapshot = snapshot(&context);
+    let make = snapshot.entries().iter().find(|entry| entry.source == "make").unwrap();
+    assert!(
+        snapshot
+            .prepare(&make.id, None, &Inputs { timeout_seconds: Some(5), ..Inputs::default() })
+            .unwrap_err()
+            .to_string()
+            .contains("Composer")
+    );
+}
+
+#[test]
 fn raw_shell_arguments_are_positional_instead_of_attaching_to_a_pipeline() {
     let (_temp, context) = fixture();
     let favorite = Favorite { command: "printf '%s\\0' \"$1\" \"$2\"".into(), ..Favorite::default() };
@@ -288,8 +366,11 @@ fn variables_and_provider_separators_are_not_inferred_from_shell_text() {
     write(&context, "Makefile", "test:\n");
     write(&context, "pom.xml", "<project/>");
     let snapshot = snapshot(&context);
-    let inputs =
-        Inputs { args: vec!["arg value".into()], variables: BTreeMap::from([("NAME".into(), "x;echo BAD".into())]) };
+    let inputs = Inputs {
+        args: vec!["arg value".into()],
+        variables: BTreeMap::from([("NAME".into(), "x;echo BAD".into())]),
+        ..Inputs::default()
+    };
     for entry in snapshot.entries() {
         let prepared = snapshot.prepare(&entry.id, None, &inputs).unwrap();
         assert!(prepared.command.contains("'NAME=x;echo BAD'") || prepared.command.contains("'-DNAME=x;echo BAD'"));

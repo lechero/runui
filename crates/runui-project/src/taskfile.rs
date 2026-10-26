@@ -107,6 +107,9 @@ fn read_contents(
             defining_line: usize::try_from(doc.get(value).line).ok().filter(|line| *line > 0),
             variant: String::new(),
             generated: false,
+            aliases: Vec::new(),
+            hook: false,
+            requirements: Vec::new(),
             name: full,
             desc: desc(&task),
         });

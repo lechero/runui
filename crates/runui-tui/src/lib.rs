@@ -405,6 +405,10 @@ impl App {
             Ok(message) => return self.project_opened(*message),
             Err(message) => message,
         };
+        let msg = match msg.downcast::<palette::Inspected>() {
+            Ok(message) => return self.palette_inspected(*message),
+            Err(msg) => msg,
+        };
         let msg = match msg.downcast::<palette::Launched>() {
             Ok(message) => return self.palette_launched(*message),
             Err(msg) => msg,
@@ -557,7 +561,7 @@ impl App {
                 if let Some(err) = &f.err {
                     problems.push(format!("{}: {err}", f.rel_path()));
                 }
-                for c in &f.commands {
+                for c in f.commands.iter().filter(|command| !command.hook) {
                     items.push(Item {
                         kind: Kind::Command,
                         name: c.name.clone(),
@@ -577,6 +581,9 @@ impl App {
             }
             let mut v = old.remove(source.label()).unwrap_or_else(|| View::new(source.label(), ""));
             (v.empty, v.note) = ("nothing in it to run".into(), String::new());
+            if source == project::Source::Composer {
+                v.note = "Lifecycle hooks: Ctrl+P then kind:hook source:composer".into();
+            }
             if let Some(first) = problems.first() {
                 v.note = first.clone();
                 if problems.len() > 1 {
@@ -590,7 +597,10 @@ impl App {
             p.views.push(v);
         }
         if p.views.is_empty() {
-            let mut view = View::new("Project", "no Taskfile, package.json, Makefile, compose file or pom.xml here");
+            let mut view = View::new(
+                "Project",
+                "no Taskfile, package.json, Makefile, compose file, pom.xml or composer.json here",
+            );
             if let Some(problem) = self.discovery.diagnostics.first() {
                 view.note = format!("discovery incomplete: {}", problem.description(&self.cfg.dir));
             }

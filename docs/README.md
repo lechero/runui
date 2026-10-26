@@ -13,11 +13,13 @@ The pages are static HTML and CSS with no JavaScript, external fonts, or build s
 
 - [Four panels](index.html#overview): Favorites, Project, Runs, and Log.
 - [Everyday use](index.html#workflow): discover, favorite, run, leave, return, and stop.
-- [Command catalog](command-catalog.md): Project/Workspace/Registered search, recent recall, project picker, diagnostics, CLI IDs and preparation.
+- [Command catalog](command-catalog.md): Project/Workspace/Registered search, recent recall, project picker, diagnostics, Composer, CLI IDs and preparation.
 - [Log](index.html#log): review successful and failed results, clear notices, and revisit history.
 - [Tmux](index.html#status-bars): global counts, hidden zeros, and the shared review state.
 - [MCP](index.html#mcp): configuration, all six tools, agent identity, persistence, and tool-call examples.
 - [Keyboard](index.html#keyboard), [CLI](index.html#cli), and [stored files](index.html#files).
+
+Native Composer verification uses `scripts/verify-composer.py` with existing PHP and a selected PHAR. CI checks pinned official Composer 2.2.30 and 2.10.3 against disposable scripts, callbacks, helpers, alternate context and supervised CLI/MCP runs. See [the catalog reference](command-catalog.md#verify-this-increment). It installs no project dependencies and never uses personal Composer configuration.
 
 ## Regenerate captures
 
@@ -33,6 +35,8 @@ Or capture a specific build:
 ```sh
 task build
 python3 -B scripts/capture-docs.py --binary bin/runui
+# Refresh only the Composer tour:
+python3 -B scripts/capture-docs.py --binary bin/runui --only composer
 ```
 
 The default binary is `bin/runui`, the output of `task build`. The script works with temporary HOME/XDG directories, generated project files, and a private tmux socket. It launches real supervisors and an MCP stdio client named `docs-agent`, then stops demo processes and removes the temporary state. It never reads or clears personal runui data and needs no agent account or network connection.
@@ -42,6 +46,7 @@ For focused real-TUI checks, run `python3 -B scripts/verify-palette.py` and `pyt
 | Output | Shows |
 | --- | --- |
 | `assets/tour.gif` / `.mp4` | Discover, favorite, run, reopen the same process, filter nested commands, stop, and revisit Log. |
+| `assets/composer-tour.gif` / `.mp4`, `composer.png` | Canonical alias search, explicit lifecycle hooks, separate tool availability and bounded native checks without unread results. |
 | `assets/log-tour.gif` / `.mp4` | Local and remote failures, a successful result, individual acknowledgement, a running count left intact, and retained history. |
 | `assets/agents-tour.gif` / `.mp4` | Real MCP discovery, start, list, read, stop, disconnect/reconnect, and review of agent results. |
 | `assets/project.png`, `scripts.png`, `makefile.png`, `compose.png`, `maven.png` | Current command sources and nested-folder discovery. |
@@ -62,4 +67,6 @@ This regenerates browser/touch/app icons and the repository social card. The [br
 
 ## Planned discovery improvements
 
-The [research](command-discovery-research.md) and [integration plan](command-discovery-plan.md) are roadmap documents. They define complete-v1 catalog search, workspace and registered-project scope, Composer scripts, Cargo workspaces/targets, runui usage history, and opt-in shell recall. These remain planned features; the user guide documents current behavior. [CONTEXT.md](../CONTEXT.md) defines the shared terms, and `python3 -B scripts/probe-discovery.py` reproduces the current discovery gaps using disposable Rust fixtures (cached Cargo dependencies required).
+The [research](command-discovery-research.md) and [integration plan](command-discovery-plan.md) are roadmap documents. They distinguish implemented catalog/workspace/registry/Composer work from the remaining Cargo, shell recall, inputs and workflow contracts. The user guide documents current behavior.
+
+[CONTEXT.md](../CONTEXT.md) defines the shared terms. `scripts/probe-discovery.py` records the historical research baseline at `326b0c2`; use the implementation audit and native verification scripts for current behavior.

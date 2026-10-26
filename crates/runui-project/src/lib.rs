@@ -1,6 +1,6 @@
 //! The commands a project's files define: a Taskfile's tasks,
 //! package.json's scripts, a Makefile's targets, a docker compose file's
-//! services and a Maven pom's builds, each ready to run as you would type
+//! services, a Maven pom's builds and Composer scripts, each ready to run as you would type
 //! it, in the project's folder and the folders under it, a monorepo's
 //! packages and a Maven project's modules. Ported from
 //! internal/runui/project.
@@ -13,6 +13,7 @@ use regex::Regex;
 use runui_core::golang::filepath;
 
 mod compose;
+mod composer;
 mod discovery;
 mod makefile;
 mod maven;
@@ -25,6 +26,7 @@ mod xml;
 mod yaml;
 
 pub use compose::read_compose;
+pub use composer::read_composer;
 pub use discovery::{Diagnostic, Discovery, canonical_path, discover, discover_cancellable};
 pub use makefile::read_makefile;
 pub use maven::read_pom;
@@ -46,15 +48,17 @@ pub enum Source {
     /// docker compose
     Compose,
     Maven,
+    Composer,
 }
 
 /// SOURCES are every kind of project file, in the order the Project
 /// panel's tabs go.
-pub const SOURCES: [Source; 5] = [Source::Taskfile, Source::Npm, Source::Make, Source::Compose, Source::Maven];
+pub const SOURCES: [Source; 6] =
+    [Source::Taskfile, Source::Npm, Source::Make, Source::Compose, Source::Maven, Source::Composer];
 
 impl Source {
     /// as_str is the source as it's written down: task, npm, make,
-    /// compose or maven (Go's `string(s)`).
+    /// compose, maven or composer (Go's `string(s)`).
     pub fn as_str(self) -> &'static str {
         match self {
             Source::Taskfile => "task",
@@ -62,6 +66,7 @@ impl Source {
             Source::Make => "make",
             Source::Compose => "compose",
             Source::Maven => "maven",
+            Source::Composer => "composer",
         }
     }
 
@@ -73,6 +78,7 @@ impl Source {
             Source::Make => "Makefile",
             Source::Compose => "Compose",
             Source::Maven => "Maven",
+            Source::Composer => "Composer",
         }
     }
 }
@@ -107,6 +113,11 @@ pub struct Command {
     /// A provider's stable action variant, separate from its display name.
     pub variant: String,
     pub generated: bool,
+    /// Alternate names resolve to this definition, rather than extra rows.
+    pub aliases: Vec<String>,
+    pub hook: bool,
+    /// Tools required even when an environment prefix starts argv.
+    pub requirements: Vec<String>,
 }
 
 /// File is one of the project's files and the commands in it.
@@ -132,7 +143,9 @@ pub struct File {
 impl File {
     /// rel_path is the file from the project's folder: apps/web/package.json.
     pub fn rel_path(&self) -> String {
-        filepath::join(&[&self.rel, &filepath::base(&self.path)])
+        let local = filepath::rel(&canonical_path(&self.dir), &canonical_path(&self.path))
+            .unwrap_or_else(|| filepath::base(&self.path));
+        filepath::join(&[&self.rel, &local])
     }
 }
 
@@ -245,6 +258,8 @@ pub(crate) fn has_project_file(dir: &str) -> bool {
         || first_file(dir, &MAKEFILE_NAMES).is_some()
         || !compose_files(dir).is_empty()
         || is_file(&filepath::join(&[dir, "pom.xml"]))
+        || is_file(&filepath::join(&[dir, "composer.json"]))
+        || is_file(&filepath::join(&[dir, ".runui.json"]))
 }
 
 /// first_file is the first of names that's a file in dir, as a path. The

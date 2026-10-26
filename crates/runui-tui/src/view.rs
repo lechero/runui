@@ -579,7 +579,7 @@ impl App {
         let mut lines = vec![S_TITLE.render(&format!("runui in {}", self.short(&self.cfg.dir))), String::new()];
         if self.discovery.files.is_empty() {
             lines.push(S_DIM.render(
-                "No Taskfile, package.json, Makefile, compose file or pom.xml here, or in the folders under it.",
+                "No Taskfile, package.json, Makefile, compose file, pom.xml or composer.json here, or in the folders under it.",
             ));
         }
         for diagnostic in &self.discovery.diagnostics {
@@ -593,6 +593,7 @@ impl App {
                 project::Source::Make => "targets",
                 project::Source::Compose => "commands",
                 project::Source::Maven => "builds",
+                project::Source::Composer => "scripts / hooks",
             };
             let mut line = format!("{:<width$}  {} {what}", f.rel_path(), f.commands.len());
             if let Some(err) = &f.err {
@@ -658,6 +659,7 @@ impl App {
                 ("ctrl+p".into(), "search the command catalog and recent invocations; esc returns"),
                 ("alt+s / alt+p".into(), "in the palette: switch scope or choose registered projects"),
                 ("ctrl+v / f2".into(), "in the palette: command details or discovery diagnostics"),
+                ("alt+i".into(), "in the palette: explicitly check native Composer tool versions"),
                 (
                     format!("{}, enter on a run", h(&k.focus_pane)),
                     "the output takes the keys, to scroll it; esc goes back",

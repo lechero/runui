@@ -27,6 +27,7 @@ use chrono::{DateTime, Local, Utc};
 use runui_core::golang::{self, exec, filepath, json::nullable, opt_time, time as go_time, zero_time};
 use serde::{Deserialize, Serialize};
 
+pub mod inspection;
 mod output;
 mod supervise;
 mod sys;

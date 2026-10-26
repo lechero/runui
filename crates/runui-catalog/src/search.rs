@@ -15,6 +15,14 @@ struct Term {
 }
 
 impl Query {
+    /// Commands mode hides lifecycle hooks unless the query requests them.
+    pub fn commands(&mut self) {
+        self.kinds = vec![Kind::Command, Kind::Favorite];
+        if self.terms.iter().any(|term| term.facet.as_deref() == Some("kind") && term.value == "hook") {
+            self.kinds.push(Kind::Hook);
+        }
+    }
+
     /// Recognized facets are explicit; unknown colons remain ordinary text.
     /// Quoting a token or escaping its colon forces a literal search.
     pub fn parse(text: &str) -> Result<Self, String> {
@@ -156,6 +164,7 @@ fn facet_matches(entry: &Entry, facet: &str, value: &str) -> bool {
         "state" => entry.state.as_deref() == Some(value),
         "kind" => match value {
             "command" => entry.kind == Kind::Command,
+            "hook" => entry.kind == Kind::Hook,
             "favorite" => entry.favorite,
             "run" => entry.kind == Kind::Run,
             "recent" => entry.kind == Kind::Recent,
@@ -170,7 +179,7 @@ fn facet_matches(entry: &Entry, facet: &str, value: &str) -> bool {
 fn text_match(entry: &Entry, term: &str) -> Option<i64> {
     let name = entry.name.to_lowercase();
     let mut best = quality(&name, term).map(|quality| quality + 600);
-    for alias in &entry.favorite_names {
+    for alias in entry.favorite_names.iter().chain(&entry.aliases) {
         best = best.max(quality(&alias.to_lowercase(), term).map(|quality| quality + 600));
     }
     for (text, weight) in [
