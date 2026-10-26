@@ -437,6 +437,11 @@ fn arguments_round_trip_literally_with_the_exact_working_directory() {
 #[test]
 fn composer_aliases_hooks_readiness_and_timeout_keep_one_native_definition() {
     let (_temp, mut context) = fixture();
+    let project = Path::new(&context.project).with_file_name("verify project with spaces");
+    fs::rename(&context.project, &project).unwrap();
+    let environment = context.environment;
+    context = Context::new(&project.to_string_lossy(), &project.to_string_lossy());
+    context.environment = environment;
     write(
         &context,
         "composer.json",
@@ -453,7 +458,9 @@ fn composer_aliases_hooks_readiness_and_timeout_keep_one_native_definition() {
     assert_eq!(before.search(&hook)[0].entry.name, "post-install-cmd");
     let mut alias = Query::parse("source:composer verify").unwrap();
     alias.commands();
-    let entry = before.search(&alias)[0].entry;
+    let hits = before.search(&alias);
+    assert_eq!(hits.len(), 2, "the weaker checkout-path match remains searchable");
+    let entry = hits[0].entry;
     assert_eq!(entry.name, "check");
     assert_eq!(entry.aliases, ["verify"]);
     assert_eq!(entry.availability, Availability::Missing);
