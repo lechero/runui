@@ -77,7 +77,7 @@ def social_card(mark: Image.Image) -> None:
     draw.text((166, 84), "runui", fill=TEXT, font=font(43, True))
     draw.text((86, 214), "Project commands,", fill=TEXT, font=font(53, True))
     draw.text((86, 290), "ready to run.", fill=CYAN, font=font(53, True))
-    draw.text((88, 399), "Find it. Run it. Leave it running.", fill=MUTED, font=font(22))
+    draw.text((88, 399), "Humans + agents. Shared runs.", fill=MUTED, font=font(22))
 
     panel = (748, 174, 1110, 449)
     draw.rounded_rectangle(panel, radius=17, fill="#111C2D", outline="#4B6178", width=2)

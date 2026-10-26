@@ -4,6 +4,8 @@ Conventional commits, newest release first. Unreleased changes sit on `main`.
 
 ## Unreleased
 
+- Refresh the README, illustrated guide and brand kit for Log, Agents, MCP and tmux review state. Regenerate current screenshots, add three real GIF/video tours with playback controls and transcripts, and provide `task docs:capture` for repeatable captures.
+
 - Replace Errors with a global Log (`4`): Unread gathers successful, failed, and lost results counted in tmux; All keeps finished history, including reviewed and stopped runs. Viewing a result clears only its notice, and zero tmux counts stay hidden. Filter by result, folder, command, or agent; rerun from Log to follow the new attempt in Runs.
 - Keep previous attempts when a command runs again, within the existing 40 previous ended runs limit. Each attempt retains its output and independent review state.
 - Viewing a finished run's output in the TUI now clears its status count, including sidebar previews. Running processes stay counted, and run history and output are kept.

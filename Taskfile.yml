@@ -47,6 +47,11 @@ tasks:
     desc: Format the Rust code
     cmd: cargo fmt --all
 
+  docs:capture:
+    desc: Refresh documentation screenshots, GIFs and playable videos
+    deps: [build]
+    cmd: python3 -B scripts/capture-docs.py
+
   compare:
     desc: "Check this build against the Go runui (GO_APPS, ~/dotfiles/apps): runui list on every kind of project file, mutated at random, then both interfaces side by side in tmux"
     cmds:

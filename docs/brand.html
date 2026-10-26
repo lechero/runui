@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0b1220">
-  <meta name="description" content="The runui brand kit: vector logo, icon, colors, favicon exports, and social preview.">
+  <meta name="description" content="The Runui brand kit: logo, icons, colors, social preview, and real demos of persistent runs, Log and MCP agent tools.">
   <title>runui — brand kit</title>
   <link rel="icon" href="assets/runui-mark.svg" type="image/svg+xml">
   <link rel="alternate icon" href="assets/favicon.ico" sizes="any">
@@ -25,11 +25,11 @@
     </div>
   </header>
 
-  <main class="brand-page" id="content">
+  <main class="brand-page" id="content" tabindex="-1">
     <section class="brand-intro">
       <p class="eyebrow"><span class="eyebrow-rule"></span> RUNUI / VISUAL IDENTITY</p>
       <h1>Small mark.<br><em>Long-running work.</em></h1>
-      <p class="hero-lede">A terminal prompt points forward. The green cursor stays put, just like a command that keeps running after you leave runui. The mark uses the same sky and green as the interface.</p>
+      <p class="hero-lede">A terminal prompt points forward. The green cursor stays put, just like a command that keeps running after you or your agent leaves runui. The mark uses the same sky and green as the interface.</p>
     </section>
 
     <section class="brand-showcase" aria-labelledby="showcase-title">
@@ -61,11 +61,21 @@
         <a href="assets/apple-touch-icon.png"><strong>Touch icon</strong><span>apple-touch-icon.png · 180 × 180</span><b aria-hidden="true">↗</b></a>
         <a href="assets/social-card.png"><strong>Social preview</strong><span>social-card.png · 1200 × 630</span><b aria-hidden="true">↗</b></a>
       </div>
-      <figure class="screen social-preview"><a href="assets/social-card.png" aria-label="Open the social preview image"><img src="assets/social-card.png" width="1200" height="630" alt="runui social card with the logo and the words Project commands, ready to run" loading="lazy"></a><figcaption>Suggested repository social preview image.</figcaption></figure>
+      <figure class="screen social-preview"><a href="assets/social-card.png" aria-label="Open the social preview image"><img src="assets/social-card.png" width="1200" height="630" alt="Runui social card: project commands, ready to run, for humans and agents with shared runs and history" loading="lazy"></a><figcaption>Repository social preview: project commands, persistent runs, and shared history for humans and agents.</figcaption></figure>
+    </section>
+
+    <section class="content-section" id="demos" aria-labelledby="demos-title">
+      <div class="section-head"><span class="section-number">04</span><div><p class="section-kicker">SHOW IT IN ACTION</p><h2 id="demos-title">Real app. Real runs.</h2></div></div>
+      <p>Current captures include all four panels and the local MCP server. Use GIFs in a README, or MP4s with playback controls on a website. Each demo also has a still poster. See <a href="README.md">media maintenance</a> to regenerate them from the Rust binary.</p>
+      <div class="demo-downloads">
+        <article><span class="source-tag">01 / EVERYDAY</span><h3>Discover → run → return</h3><p>Favorites, nested commands, live output, a reopened process, and Log.</p><a href="assets/tour.gif">Download GIF</a><a href="assets/tour.mp4">Download MP4</a><a href="assets/running.png">Still poster</a></article>
+        <article><span class="source-tag">02 / REVIEW</span><h3>A Log worth keeping</h3><p>Successes and failures, individual review, quiet counters, preserved history.</p><a href="assets/log-tour.gif">Download GIF</a><a href="assets/log-tour.mp4">Download MP4</a><a href="assets/log.png">Still poster</a></article>
+        <article><span class="source-tag">03 / MCP</span><h3>Human + agent</h3><p>Shared processes, agent identity, client disconnects, output, and finished results.</p><a href="assets/agents-tour.gif">Download GIF</a><a href="assets/agents-tour.mp4">Download MP4</a><a href="assets/agents.png">Still poster</a></article>
+      </div>
     </section>
 
     <section class="content-section" aria-labelledby="usage-title">
-      <div class="section-head"><span class="section-number">04</span><div><p class="section-kicker">USAGE</p><h2 id="usage-title">A few simple rules</h2></div></div>
+      <div class="section-head"><span class="section-number">05</span><div><p class="section-kicker">USAGE</p><h2 id="usage-title">A few simple rules</h2></div></div>
       <div class="brand-rules"><div><h3>Use the full logo when there is room</h3><p>README headers, landing pages, and social art get the horizontal lockup. Use the mark alone in compact places.</p></div><div><h3>Give it some air</h3><p>Leave at least a quarter of the mark's width clear around it. Keep its proportions and corners.</p></div><div><h3>Keep the color meanings</h3><p>Sky is the prompt and active focus; green is the cursor and a running command. Avoid swapping them.</p></div></div>
       <div class="callout"><strong>Typography</strong><p>The wordmark uses a bold monospace face (Menlo with a DejaVu Sans Mono fallback). The docs use the system sans-serif for long text. No font files or web requests are needed.</p></div>
     </section>

@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0b1220">
-  <meta name="description" content="The illustrated guide to runui: discover project commands, keep favorites, follow output, and manage runs that outlive the terminal.">
+  <meta name="description" content="Runui in Rust: discover project commands, keep persistent runs, review Log, quiet tmux counters, and share six MCP tools with your agent.">
   <title>runui — the illustrated guide</title>
   <link rel="icon" href="assets/runui-mark.svg" type="image/svg+xml">
   <link rel="alternate icon" href="assets/favicon.ico" sizes="any">
@@ -18,8 +18,9 @@
       <a class="wordmark" href="#top" aria-label="runui, back to top"><img src="assets/runui-mark.svg" width="34" height="34" alt=""><span>runui</span></a>
       <nav aria-label="Top navigation">
         <a class="nav-mobile-hide" href="#quickstart">Get started</a>
-        <a class="nav-secondary" href="#keyboard">Keys</a>
-        <a href="brand.html">Brand</a>
+        <a href="#log">Log</a>
+        <a href="#mcp">MCP</a>
+        <a class="nav-secondary" href="brand.html">Brand</a>
         <a class="nav-secondary" href="../README.md">README</a>
         <a class="github-link" href="https://github.com/lechero/runui">GitHub <span aria-hidden="true">↗</span></a>
       </nav>
@@ -36,45 +37,52 @@
         <a href="#sources">Project commands</a>
         <a href="#favorites">Favorites &amp; your own</a>
         <a href="#runs">Runs &amp; output</a>
+        <a href="#log">Log &amp; review</a>
         <a href="#status-bars">Status bars</a>
         <a href="#keyboard">Keyboard reference</a>
         <a href="#cli">CLI reference</a>
         <a href="#mcp">Agent tools (MCP)</a>
         <a href="#files">Files &amp; history</a>
       </nav>
-      <div class="sidebar-note"><span class="status-dot"></span> Project commands, ready to run<br><small>Pick a command. Keep its output.</small></div>
+      <div class="sidebar-note"><span class="status-dot"></span> Human or agent, one run store<br><small>Find it. Run it. Come back to it.</small></div>
     </aside>
 
-    <main id="content">
+    <main id="content" tabindex="-1">
       <section class="hero" id="overview" aria-labelledby="hero-title">
         <div class="hero-copy">
-          <p class="eyebrow"><span class="eyebrow-rule"></span> ONE PLACE FOR PROJECT COMMANDS</p>
-          <h1 id="hero-title">Your project, <em>ready to run.</em></h1>
-          <p class="hero-lede">runui finds the tasks, scripts, targets, services, and builds in a folder. Pick one, watch its output, and close the interface whenever you like. The command keeps running until you stop it.</p>
+          <p class="eyebrow"><span aria-hidden="true">✦</span> YOUR TERMINAL. YOUR AGENT. YOUR RUNS.</p>
+          <h1 id="hero-title">Find the command.<br><em>Keep the run.</em></h1>
+          <p class="hero-lede">Discover your project’s tasks and scripts. Follow live output, leave work running, and return to a Log of finished attempts. Your agent uses the same processes and history through MCP. One Rust binary keeps it together.</p>
           <div class="hero-actions">
             <a class="button button-primary" href="#quickstart">Start using runui <span aria-hidden="true">→</span></a>
-            <a class="button button-secondary" href="#workflow">See how a run works</a>
+            <a class="button button-secondary" href="#mcp">Connect your agent <span aria-hidden="true">↗</span></a>
           </div>
           <div class="hero-facts" aria-label="At a glance">
             <span><strong>5</strong> project file types</span>
-            <span><strong>3</strong> panels</span>
-            <span><strong>1</strong> persistent run history</span>
+            <span><strong>4</strong> panels</span>
+            <span><strong>6</strong> MCP tools</span>
           </div>
         </div>
         <figure class="screen hero-screen">
-          <a href="assets/running.png" aria-label="Open full-size screenshot of live run output"><img src="assets/running.png" width="1610" height="716" alt="runui showing a starred preview task, its live output, and the same run in the Runs panel"></a>
-          <figcaption>A real runui capture from an isolated sample project. The left side chooses a command; the right side follows its output.</figcaption>
+          <a href="assets/running.png" aria-label="Open full-size screenshot of live run output"><img src="assets/running.png" width="1610" height="716" alt="Runui’s four panels: Favorites, Project, Runs, and Log, with live preview output" fetchpriority="high"></a>
+          <figcaption>A real runui capture from an isolated sample project. Four panels keep commands, live work, and finished history close. The output pane follows the selected run.</figcaption>
         </figure>
+        <nav class="panel-map" aria-label="Explore the four panels">
+          <a href="#favorites"><kbd>1</kbd><strong>Favorites</strong><span>Your commands, at hand.</span></a>
+          <a href="#sources"><kbd>2</kbd><strong>Project</strong><span>Discover what’s runnable.</span></a>
+          <a href="#runs"><kbd>3</kbd><strong>Runs</strong><span>Here, everywhere, agents.</span></a>
+          <a href="#log"><kbd>4</kbd><strong>Log</strong><span>Review now. Revisit later.</span></a>
+        </nav>
       </section>
 
       <section class="content-section" id="quickstart" aria-labelledby="quickstart-title">
         <div class="section-head"><span class="section-number">01</span><div><p class="section-kicker">GET MOVING</p><h2 id="quickstart-title">Quick start</h2></div></div>
-        <p>Install with Homebrew on macOS or Linux, or build from this repository with Rust 1.88 or newer.</p>
+        <p>Install with Homebrew on macOS or Linux, or build a clone of this repository with Rust 1.88 or newer. Runui is one Rust binary; project commands use their own installed tools.</p>
         <div class="code-grid">
           <div class="code-card code-card-primary"><div class="code-label">With Homebrew</div><pre><code>brew tap lechero/runui https://github.com/lechero/runui.git
 brew install lechero/runui/runui</code></pre><p>Homebrew builds Runui from source and installs Rust as a build dependency.</p></div>
-          <div class="code-card"><div class="code-label">With Task</div><pre><code>task install</code></pre><p>Installs to <code>~/.local/bin</code>.</p></div>
-          <div class="code-card"><div class="code-label">With Cargo</div><pre><code>cargo install --path crates/runui --root ~/.local --locked</code></pre><p>Put <code>~/.local/bin</code> on your <code>PATH</code>.</p></div>
+          <div class="code-card"><div class="code-label">From a clone / Task</div><pre><code>task install</code></pre><p>Installs to <code>~/.local/bin</code>.</p></div>
+          <div class="code-card"><div class="code-label">From a clone / Cargo</div><pre><code>cargo install --path crates/runui --root ~/.local --locked</code></pre><p>Put <code>~/.local/bin</code> on your <code>PATH</code>.</p></div>
         </div>
         <div class="terminal-example"><div class="terminal-label"><span class="status-dot"></span> Try it in a project</div><pre><code><span class="muted">$</span> runui
 <span class="muted">$</span> runui -C ~/projects/atlas
@@ -91,7 +99,11 @@ brew install lechero/runui/runui</code></pre><p>Homebrew builds Runui from sourc
           <div class="step"><span>3</span><div><h3>Leave it</h3><p>Press <kbd>q</kbd> or close the terminal. A separate supervisor keeps the command running and saves what it prints.</p></div></div>
           <div class="step"><span>4</span><div><h3>Come back</h3><p>Open runui again. Select the run to read its output, press <kbd>s</kbd> to stop it, or <kbd>R</kbd> to run it again.</p></div></div>
         </div>
-        <figure class="screen"><a href="assets/tour.gif" aria-label="Open animated runui tour"><img src="assets/tour.gif" width="1610" height="716" alt="Animated tour showing a favorite, its live output, the Runs panel, filtering, and a stopped run" loading="lazy"></a><figcaption>The tour moves through favorites, live output, runs, filtering, and stopping. <a href="assets/running.png">View a still screenshot</a>.</figcaption></figure>
+        <figure class="screen demo">
+          <video controls playsinline preload="none" poster="assets/running.png" width="1610" height="716" aria-label="Everyday Runui tour" aria-describedby="tour-caption"><source src="assets/tour.mp4" type="video/mp4"><p><a href="assets/tour.gif">Watch the GIF tour</a>.</p></video>
+          <details class="demo-notes"><summary>Read the tour steps</summary><ol><li>Discover a Taskfile command and star it in Favorites.</li><li>Start it and follow live output.</li><li>Quit and reopen: the same process and its output remain.</li><li>Browse source tabs and filter nested package scripts.</li><li>Stop the process, then revisit its output in Log → All.</li></ol></details>
+          <figcaption id="tour-caption">A real recording of the current Rust app. Play when you’re ready; the video has no audio. <a href="assets/tour.gif">GIF</a> · <a href="assets/running.png">Still image</a></figcaption>
+        </figure>
         <div class="two-screens snapshot-pair"><figure class="screen"><a href="assets/project.png" aria-label="Open full-size screenshot of the Project panel"><img src="assets/project.png" width="1610" height="716" alt="The Project panel listing Taskfile tasks in the sample project" loading="lazy"></a><figcaption>Project commands are ready before anything is run.</figcaption></figure><figure class="screen"><a href="assets/filter.png" aria-label="Open full-size screenshot of filtered commands"><img src="assets/filter.png" width="1610" height="716" alt="The package scripts filtered to matches for web, including apps/web commands" loading="lazy"></a><figcaption>Press <kbd>/</kbd> to narrow a tab to matching commands.</figcaption></figure></div>
       </section>
 
@@ -99,7 +111,7 @@ brew install lechero/runui/runui</code></pre><p>Homebrew builds Runui from sourc
         <div class="section-head"><span class="section-number">03</span><div><p class="section-kicker">DISCOVERY</p><h2 id="sources-title">Commands already in your project</h2></div></div>
         <p>runui starts at the nearest project folder above your current directory, stopping at the repository root. It reads that folder and folders under it three levels deep. A command from <code>apps/web</code> is labeled with that path and runs there.</p>
         <div class="source-grid">
-          <article class="source-card"><span class="source-tag">01 / TASK</span><h3>Taskfile</h3><p>Tasks and included tasks, using their names and descriptions. Internal tasks stay out of the list.</p><code>task 'docs:serve'</code></article>
+          <article class="source-card"><span class="source-tag">01 / TASK</span><h3>Taskfile</h3><p>Tasks and included tasks, using their names and descriptions. Internal tasks stay out of the list.</p><code>task 'docs:capture'</code></article>
           <article class="source-card"><span class="source-tag">02 / PACKAGE</span><h3>package.json</h3><p>Scripts through pnpm, yarn, bun, or npm, as the package manager field or nearest lock file selects.</p><code>pnpm run dev</code></article>
           <article class="source-card"><span class="source-tag">03 / MAKE</span><h3>Makefile</h3><p>Targets with their <code>##</code> comments shown beside them.</p><code>make test</code></article>
           <article class="source-card"><span class="source-tag">04 / CONTAINERS</span><h3>Compose</h3><p>Start all services, rebuild, stop, inspect, follow logs, or start a single service.</p><code>docker compose up</code></article>
@@ -120,16 +132,29 @@ brew install lechero/runui/runui</code></pre><p>Homebrew builds Runui from sourc
       <section class="content-section" id="runs" aria-labelledby="runs-title">
         <div class="section-head"><span class="section-number">05</span><div><p class="section-kicker">PERSISTENT BY DESIGN</p><h2 id="runs-title">Runs and their output</h2></div></div>
         <p>Every command has its own supervisor and output file. The <strong>Runs</strong> panel shows runs in this project under <strong>Here</strong>, with an <strong>Everywhere</strong> tab for runs from other folders. Once an agent has started a run through <code>runui mcp</code>, an <strong>Agents</strong> tab lists the runs agents started, wherever they are, each with the name its MCP client gave (<code>agentix</code>, <code>claude-code</code>); it goes away when the last of them is forgotten. Selecting a run previews its stored output and <a href="#status-bars">acknowledges its finished result</a>; pressing <kbd>enter</kbd> focuses the output.</p>
-        <p>Press <kbd>4</kbd> to open <strong>Log</strong>, an inbox and history of finished runs from every folder. <strong>Unread</strong> lists successful, failed, and lost results that still count in tmux; <strong>All</strong> keeps every retained finished attempt, including reviewed and stopped runs, newest finish first. Switch with <kbd>[</kbd> / <kbd>]</kbd>.</p>
-        <p>A <strong>•</strong> marks an unread result. Selecting its row shows its output and clears its completion or error notice. It stays selected while you read, so refreshing never clears the next result automatically. Running processes stay in Runs and keep their running count. Filter with <kbd>/</kbd> by command, folder, outcome (<code>completed</code>, <code>failed</code>, <code>lost</code>, <code>stopped</code>), or agent. Press <kbd>R</kbd> to follow a new attempt in Runs while preserving the old output.</p>
-        <figure class="screen"><a href="assets/log.png" aria-label="Open full-size Log screenshot"><img src="assets/log.png" width="1610" height="808" alt="Log showing unread successful and failed runs from different projects; the selected failed result is reviewed and its output is preserved" loading="lazy"></a><figcaption>Log gathers finished results across projects. The bullet clears when viewed; the outcome and output remain.</figcaption></figure>
         <div class="state-grid" aria-label="Run status symbols"><div><b class="good">●</b><span>Running</span></div><div><b class="muted">✓</b><span>Exited 0</span></div><div><b class="bad">✗</b><span>Failed</span></div><div><b class="muted">■</b><span>Stopped</span></div><div><b class="warn">?</b><span>Lost</span></div></div>
         <div class="two-screens"><figure class="screen"><a href="assets/runs.png" aria-label="Open full-size Runs screenshot"><img src="assets/runs.png" width="1610" height="716" alt="The Runs panel selected while the preview command is running" loading="lazy"></a><figcaption>While running: output keeps arriving.</figcaption></figure><figure class="screen"><a href="assets/stopped.png" aria-label="Open full-size stopped run screenshot"><img src="assets/stopped.png" width="1610" height="716" alt="The preview run after stop, with its previous output still available" loading="lazy"></a><figcaption>After <kbd>s</kbd>: the output remains.</figcaption></figure></div>
         <p>Stopping sends SIGTERM to the command's process group, then SIGKILL after five seconds if it is still there. Press <kbd>D</kbd> on an ended run to forget it and its output. When starting a run, runui retains the 40 most recent previous ended runs across folders, including repeated commands.</p>
       </section>
 
+      <section class="content-section" id="log" aria-labelledby="log-title">
+        <div class="section-head"><span class="section-number">06</span><div><p class="section-kicker">A PLACE TO COME BACK TO</p><h2 id="log-title">Review it. Keep its history.</h2></div></div>
+        <p>Press <kbd>4</kbd> for <strong>Log</strong>. Results come from every folder, including agent-started work. Each row shows its project folder, outcome, time, and agent when present. The outcome stays visible after review.</p>
+        <div class="split-note">
+          <div><span class="mark star" aria-hidden="true">•</span><h3>Unread</h3><p>Successful, failed, and lost results still counted in tmux. Selecting a row shows its output and clears only that notice. The selected row stays while you read; refreshes leave the next result unread.</p></div>
+          <div><span class="mark dollar" aria-hidden="true">↶</span><h3>All</h3><p>Every retained finished attempt, including reviewed and stopped runs, newest finish first. Repeated commands keep their own output and review state. Switch tabs with <kbd>[</kbd> / <kbd>]</kbd>.</p></div>
+        </div>
+        <figure class="screen demo">
+          <video controls playsinline preload="none" poster="assets/log.png" width="1610" height="716" aria-label="Log review and history tour" aria-describedby="log-caption"><source src="assets/log-tour.mp4" type="video/mp4"><p><a href="assets/log-tour.gif">Watch the Log GIF</a>.</p></video>
+          <details class="demo-notes"><summary>Read the Log demo steps</summary><ol><li>Start a preview, a successful check, and failures in two project folders.</li><li>Open Log: viewing the first failure clears only its notice.</li><li>Wait through refreshes: other results remain unread.</li><li>View the next failure and the successful check; their counts clear individually.</li><li>The live preview keeps its running count. Switch to All to revisit the reviewed output.</li></ol></details>
+          <figcaption id="log-caption">View failures and successes one at a time. Finished counters clear; running processes stay counted. <a href="assets/log-tour.gif">GIF</a> · <a href="assets/log.png">Still image</a></figcaption>
+        </figure>
+        <p>Use <kbd>/</kbd> to search by command, folder, result (<code>completed</code>, <code>failed</code>, <code>lost</code>, <code>stopped</code>), or agent. Press <kbd>R</kbd> to follow a new attempt in Runs, <kbd>y</kbd> to copy its command, or <kbd>D</kbd> to forget an ended run and its output.</p>
+        <div class="callout"><strong>Review clears a notice, not a run</strong><p>Any TUI preview of a finished result marks it as reviewed, without focusing the output pane. If a run finishes while visible, it is reviewed then. Deliberately stopped runs do not count as unread. Log → All keeps reviewed output until it is forgotten or pruned.</p></div>
+      </section>
+
       <section class="content-section" id="status-bars" aria-labelledby="status-bars-title">
-        <div class="section-head"><span class="section-number">06</span><div><p class="section-kicker">A QUIET SIGNAL</p><h2 id="status-bars-title">Know what needs a look</h2></div></div>
+        <div class="section-head"><span class="section-number">07</span><div><p class="section-kicker">A QUIET SIGNAL</p><h2 id="status-bars-title">Know what needs a look</h2></div></div>
         <p>Runui counts active, completed, and errored runs across every folder. Put those counts in tmux's status line to see when a command finishes while you work elsewhere.</p>
         <div class="status-preview" role="img" aria-label="Example tmux status line showing two running commands in blue and one error in red; the zero completed count is hidden">
           <span class="status-preview-window">1 · project</span>
@@ -137,7 +162,7 @@ brew install lechero/runui/runui</code></pre><p>Homebrew builds Runui from sourc
           <span class="status-preview-running" aria-hidden="true">▶ 2</span>
           <span class="status-preview-errored" aria-hidden="true">✗ 1</span>
         </div>
-        <p class="fine-print">In this example, completed is zero, so it has no segment. When every count is zero, Runui's segment disappears.</p>
+        <p class="fine-print">A count is a notice to check, not a lifetime total. Zero values have no segment; when every count is zero, Runui’s segment disappears. Allow the configured polling interval after viewing output.</p>
         <div class="status-steps">
           <div><span class="status-step-number">01</span><h3>Running</h3><p><span class="status-preview-running">▶</span> A command has started or is still active.</p></div>
           <div><span class="status-step-number">02</span><h3>Needs attention</h3><p><span class="status-preview-completed">✓</span> Exit 0, or <span class="status-preview-errored">✗</span> a failure or lost run. Deliberately stopped runs stay out.</p></div>
@@ -152,16 +177,16 @@ set -ag status-right '#(runui status tmux)'</code></pre></div>
       </section>
 
       <section class="content-section" id="keyboard" aria-labelledby="keyboard-title">
-        <div class="section-head"><span class="section-number">07</span><div><p class="section-kicker">STAY IN FLOW</p><h2 id="keyboard-title">Keyboard reference</h2></div></div>
+        <div class="section-head"><span class="section-number">08</span><div><p class="section-kicker">STAY IN FLOW</p><h2 id="keyboard-title">Keyboard reference</h2></div></div>
         <p>Press <kbd>?</kbd> inside runui for the complete in-app key sheet. The mouse can select rows and scroll output too.</p>
-        <div class="table-wrap"><table><thead><tr><th>Keys</th><th>What they do</th></tr></thead><tbody>
+        <div class="table-wrap"><table><thead><tr><th scope="col">Keys</th><th scope="col">What they do</th></tr></thead><tbody>
           <tr><td><kbd>tab</kbd> / <kbd>shift+tab</kbd>, <kbd>1</kbd>–<kbd>4</kbd></td><td>Switch between Favorites, Project, Runs, and Log.</td></tr>
           <tr><td><kbd>[</kbd> / <kbd>]</kbd></td><td>Switch file type, Runs tabs, or Log Unread / All.</td></tr>
           <tr><td><kbd>j</kbd> / <kbd>k</kbd>, <kbd>g</kbd> / <kbd>G</kbd></td><td>Move through rows or jump to the first / last row.</td></tr>
           <tr><td><kbd>/</kbd>, <kbd>esc</kbd></td><td>Filter the current tab; clear the filter.</td></tr>
           <tr><td><kbd>enter</kbd>, <kbd>s</kbd>, <kbd>R</kbd></td><td>Run, stop, or restart; enter on a run focuses its output.</td></tr>
           <tr><td><kbd>0</kbd>, <kbd>esc</kbd>, <kbd>+</kbd> / <kbd>_</kbd></td><td>Focus output, return to the panel, or give output the full window and restore it.</td></tr>
-          <tr><td><kbd>pgup</kbd> / <kbd>pgdn</kbd>, <kbd>J</kbd> / <kbd>K</kbd></td><td>Scroll output from a panel; <kbd>G</kbd> there resumes following it.</td></tr>
+          <tr><td><kbd>pgup</kbd> / <kbd>pgdn</kbd>, <kbd>J</kbd> / <kbd>K</kbd></td><td>Scroll output from a panel; focus the output and press <kbd>G</kbd> to follow its end.</td></tr>
           <tr><td><kbd>m</kbd>, <kbd>a</kbd>, <kbd>e</kbd>, <kbd>D</kbd></td><td>Star, add, edit, or remove a favorite; forget an ended run with <kbd>D</kbd>.</td></tr>
           <tr><td><kbd>&lt;</kbd> / <kbd>&gt;</kbd>, <kbd>y</kbd>, <kbd>r</kbd></td><td>Reorder a favorite, copy a command, or reload project files.</td></tr>
           <tr><td><kbd>q</kbd></td><td>Quit while commands keep running.</td></tr>
@@ -170,7 +195,7 @@ set -ag status-right '#(runui status tmux)'</code></pre></div>
       </section>
 
       <section class="content-section" id="cli" aria-labelledby="cli-title">
-        <div class="section-head"><span class="section-number">08</span><div><p class="section-kicker">FROM THE SHELL</p><h2 id="cli-title">CLI reference</h2></div></div>
+        <div class="section-head"><span class="section-number">09</span><div><p class="section-kicker">FROM THE SHELL</p><h2 id="cli-title">CLI reference</h2></div></div>
         <div class="cli-list">
           <div><code>runui [-C DIR]</code><p>Open the interface in the current project or a specified folder. <code>runui -h</code> prints its built-in help.</p></div>
           <div><code>runui list [-C DIR]</code><p>Print this folder's favorites, discovered commands, and runs. This only reads data.</p></div>
@@ -182,37 +207,71 @@ set -ag status-right '#(runui status tmux)'</code></pre></div>
       </section>
 
       <section class="content-section" id="mcp" aria-labelledby="mcp-title">
-        <div class="section-head"><span class="section-number">09</span><div><p class="section-kicker">FOR AGENTS</p><h2 id="mcp-title">Runui as an MCP server</h2></div></div>
+        <div class="section-head"><span class="section-number">10</span><div><p class="section-kicker">FOR AGENTS</p><h2 id="mcp-title">Runui as an MCP server</h2></div></div>
+        <p>Your terminal and agent work on the same processes. Runui’s six local tools discover exact commands, start persistent runs, read output, and stop work. Agent runs appear in <strong>Runs → Agents</strong> under the client’s name, then in Log when finished. Closing the MCP connection leaves the work running.</p>
+        <ol class="agent-flow" aria-label="MCP workflow">
+          <li><span>01 / DISCOVER</span><code>list_commands</code><p>Choose an exact command and directory.</p></li>
+          <li><span>02 / START</span><code>start_run</code><p>Keep the returned run ID.</p></li>
+          <li><span>03 / FOLLOW</span><code>get_run · read_output</code><p>Inspect the same state and output as the TUI.</p></li>
+          <li><span>04 / CONTROL</span><code>stop_run</code><p>Request a stop, then wait for the final state.</p></li>
+        </ol>
+        <figure class="screen demo">
+          <video controls playsinline preload="none" poster="assets/agents.png" width="1610" height="716" aria-label="MCP agent and TUI handoff tour" aria-describedby="agents-caption"><source src="assets/agents-tour.mp4" type="video/mp4"><p><a href="assets/agents-tour.gif">Watch the MCP GIF</a>.</p></video>
+          <details class="demo-notes"><summary>Read the MCP demo steps</summary><ol><li>A real MCP client discovers commands, starts a preview, and lists its run ID.</li><li>The TUI shows the preview in Agents, attributed to the client <code>docs-agent</code>.</li><li>The client disconnects while the process continues printing output.</li><li>A new connection reads that output and stops the same process.</li><li>An agent check completes. Reading via MCP leaves its completion notice unread; viewing it in Log clears it.</li><li>Log → All retains the completed check, stopped preview, agent identity, and output.</li></ol></details>
+          <figcaption id="agents-caption">Recorded with the real stdio server and all six MCP tools. No agent account or API key was needed for this demo. <a href="assets/agents-tour.gif">GIF</a> · <a href="assets/agents.png">Still image</a></figcaption>
+        </figure>
+        <h3>Connect a local client</h3>
         <p>Start <code>runui mcp -C /absolute/path/to/project</code> from a local MCP client. The client launches runui as a subprocess and exchanges newline-delimited JSON messages over stdin and stdout. There is no network listener. Use the installed binary's absolute path in your client's configuration.</p>
         <div class="terminal-example"><div class="terminal-label"><span class="status-dot"></span> Example client configuration</div><pre><code>{
   "mcpServers": {
     "runui": {
-      "command": "/home/you/.local/bin/runui",
-      "args": ["mcp", "-C", "/home/you/projects/app"]
+      "command": "/Users/you/.local/bin/runui",
+      "args": ["mcp", "-C", "/Users/you/projects/atlas"]
     }
   }
 }</code></pre></div>
-        <p class="fine-print">MCP clients use different configuration file names and shapes; use these command and argument values in your client's MCP server settings. On macOS, the installed binary is commonly under <code>/Users/you/.local/bin/runui</code>.</p>
-        <div class="table-wrap"><table><thead><tr><th>Tool</th><th>What it does</th></tr></thead><tbody>
-          <tr><td><code>list_commands</code></td><td>Return discovered project commands and saved favorites with their exact shell command and working directory.</td></tr>
+        <p class="fine-print">MCP clients use different configuration file names and shapes; use these command and argument values in your client's MCP server settings. Use <code>command -v runui</code> to find the binary. Linux home folders commonly start with <code>/home/you</code>.</p>
+        <div class="table-wrap"><table><thead><tr><th scope="col">Tool</th><th scope="col">What it does</th></tr></thead><tbody>
+          <tr><td><code>list_commands</code></td><td>With no arguments, return discovered commands and favorites with exact shell commands, working directories, and file-reading errors.</td></tr>
           <tr><td><code>start_run</code></td><td>Start a shell command under a persistent supervisor. Accepts <code>command</code>, optional <code>directory</code>, and optional <code>name</code>; returns the run, recorded as started by the client's name, which the Agents tab shows.</td></tr>
           <tr><td><code>list_runs</code></td><td>List runs across all folders, with an optional exact working directory filter.</td></tr>
-          <tr><td><code>get_run</code></td><td>Read a run's current state, timestamps, exit code, the agent that started it, its <code>output_file</code>, and other metadata by ID.</td></tr>
-          <tr><td><code>read_output</code></td><td>Read recent plain-text output by ID. Returns at most 500 lines and 64 KiB; poll to follow a live run.</td></tr>
+          <tr><td><code>get_run</code></td><td>Accept <code>id</code>; return state, timestamps, <code>exit_code</code>, <code>agent</code>, <code>output_file</code>, and other metadata. State <code>exited</code> covers success and failure; check <code>exit_code</code> for the outcome.</td></tr>
+          <tr><td><code>read_output</code></td><td>Read the latest plain-text tail by <code>id</code>, with optional <code>lines</code> (100 by default, 1–500 allowed). Returns at most 64 KiB plus state and a <code>truncated</code> flag. Poll to follow a live run; calls return a tail, not an incremental cursor.</td></tr>
           <tr><td><code>stop_run</code></td><td>Ask the supervisor to stop the run's process group, then use <code>get_run</code> to see its final state.</td></tr>
         </tbody></table></div>
-        <p>Agent runs and TUI runs use the same run files and supervisor. Stopping one from either interface affects the same process. <code>start_run</code> executes the supplied command through the shell in the supplied directory, so review agent tool calls as you would commands typed into a terminal.</p>
+        <details class="reference-details"><summary>Tool-call examples</summary>
+          <p>These are the <code>tools/call</code> parameters after your client has initialized the connection. Use the command and directory returned by <code>list_commands</code>.</p>
+          <div class="code-grid">
+            <div class="code-card"><div class="code-label">Start a discovered script</div><pre><code>{
+  "name": "start_run",
+  "arguments": {
+    "command": "pnpm run dev",
+    "directory": "apps/web",
+    "name": "web preview"
+  }
+}</code></pre></div>
+            <div class="code-card"><div class="code-label">Follow the returned run ID</div><pre><code>{
+  "name": "read_output",
+  "arguments": {
+    "id": "RUN_ID_FROM_START_RUN",
+    "lines": 100
+  }
+}</code></pre></div>
+          </div>
+        </details>
+        <p>The agent name comes from <code>initialize.clientInfo.name</code>. Metadata keeps it in <code>agent</code>, alongside <code>output_file</code>, the path to the complete raw output file. Agent and TUI runs use the same store and supervisor; either interface can stop the same process. Commands execute through the shell in their selected directory.</p>
+        <div class="callout"><strong>Reading and reviewing are separate</strong><p>MCP reads do not clear finished notices. View a result in the TUI or run <code>runui status clear</code> to dismiss them. The optional <code>list_runs.directory</code> filter matches one exact folder, while the TUI’s Here tab includes the selected project’s descendants.</p></div>
       </section>
 
       <section class="content-section" id="files" aria-labelledby="files-title">
-        <div class="section-head"><span class="section-number">10</span><div><p class="section-kicker">YOUR DATA</p><h2 id="files-title">Files and history</h2></div></div>
+        <div class="section-head"><span class="section-number">11</span><div><p class="section-kicker">YOUR DATA</p><h2 id="files-title">Files and history</h2></div></div>
         <p>Favorites and run history live in ordinary files under your home directory. You can inspect, back up, or remove them yourself.</p>
         <div class="file-list"><div><span>Favorites</span><code>~/.config/runui/favorites.json</code><small>or under <code>$XDG_CONFIG_HOME</code></small></div><div><span>Runs, metadata &amp; output</span><code>~/.local/state/runui/runs/</code><small>or under <code>$XDG_STATE_HOME</code></small></div></div>
-        <p>A run's folder holds <code>run.json</code>, <code>output.log</code>, and a lock held by its supervisor. The lock tells Runui whether the run is still alive, even after the interface exits.</p>
-        <div class="callout"><strong>Keep what matters</strong><p>Runui keeps recent completed runs so you can return to their output. The Runs panel lets you stop a live command or forget an ended one. Viewing a finished run’s output clears its completed or errored status count without deleting the history. Press <kbd>4</kbd> to find unreviewed errors from every folder.</p></div>
+        <p>A run's folder holds <code>run.json</code>, <code>output.log</code>, a lock held by its supervisor, and a <code>status.seen</code> marker after review. The lock tells Runui whether the run is still alive, even after the interface exits.</p>
+        <div class="callout"><strong>Keep what matters</strong><p>Runui keeps recent completed runs so you can return to their output. The Runs panel lets you stop a live command or forget an ended one. Viewing a finished run’s output clears its completed or errored status count without deleting the history. Press <kbd>4</kbd> for successful and failed results from every folder; Log → All keeps the reviewed history. Starting a new run retains the 40 most recent previous ended attempts.</p></div>
       </section>
 
-      <footer class="footer"><span class="wordmark"><img src="assets/runui-mark.svg" width="27" height="27" alt=""><span>runui</span></span><p>Keep your project's commands close, and their runs close enough to find again.</p><div><a href="../README.md">README</a><a href="brand.html">Brand kit</a><a href="https://github.com/lechero/runui">Source</a><a href="#top">Back to top ↑</a></div></footer>
+      <footer class="footer"><span class="wordmark"><img src="assets/runui-mark.svg" width="27" height="27" alt=""><span>runui</span></span><p>Find it. Run it. Come back to it. Human or agent.</p><div><a href="../README.md">README</a><a href="brand.html">Brand kit</a><a href="https://github.com/lechero/runui">Source</a><a href="#top">Back to top ↑</a></div></footer>
     </main>
   </div>
 </body>
