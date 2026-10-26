@@ -410,3 +410,56 @@ fn workspace_scope_finds_deep_siblings_and_keeps_their_launch_context() {
     }
     assert!(runui_catalog::same_directory(fs::read_to_string(path).unwrap().trim(), &engine));
 }
+
+#[test]
+fn registered_projects_search_and_launch_keep_checkout_identity_and_existing_data() {
+    let s = sandbox();
+    let (code, out, error) = s.run(&["projects", "--json"]);
+    assert_eq!(code, EXIT_OK, "{error}");
+    assert_eq!(serde_json::from_str::<serde_json::Value>(&out).unwrap()["projects"], serde_json::json!([]));
+    assert!(!std::path::Path::new(&s.favorites()).with_file_name("projects-v1.json").exists());
+    let other = filepath::join(&[&s.root, "other/app"]);
+    for directory in [&s.dir, &other] {
+        fs::create_dir_all(filepath::join(&[directory, ".git"])).unwrap();
+        fs::write(filepath::join(&[directory, ".git/HEAD"]), "ref: refs/heads/main\n").unwrap();
+        fs::write(filepath::join(&[directory, "Makefile"]), "report:\n\t@pwd > cwd.txt\n").unwrap();
+        assert_eq!(s.run(&["projects", "add", directory, "--name", "App", "--json"]).0, EXIT_OK);
+    }
+    let (code, out, error) =
+        s.run(&["commands", "-C", &s.dir, "--scope", "registered", "--json", "source:make report"]);
+    assert_eq!(code, EXIT_OK, "{error}");
+    let page: serde_json::Value = serde_json::from_str(&out).unwrap();
+    let entries = page["commands"].as_array().unwrap();
+    assert_eq!(entries.len(), 2, "{page}");
+    assert_ne!(entries[0]["id"], entries[1]["id"]);
+    let selected = entries
+        .iter()
+        .find(|entry| runui_catalog::same_directory(entry["directory"].as_str().unwrap(), &other))
+        .unwrap();
+    let id = selected["id"].as_str().unwrap();
+    let project = selected["registry_id"].as_str().unwrap();
+    assert_eq!(selected["branch"], "main");
+    assert_eq!(s.run(&["run", "-C", &s.dir, "--scope", "registered", id]).0, EXIT_USAGE);
+    assert_eq!(
+        s.run(&["inspect", "-C", &s.dir, "--scope", "registered", "--project", project, id, "--json"]).0,
+        EXIT_OK
+    );
+    let (_, local, _) = s.run(&["commands", "-C", &other, "--json", "source:make report"]);
+    assert_eq!(serde_json::from_str::<serde_json::Value>(&local).unwrap()["commands"][0]["id"], id);
+    // An unavailable unrelated registration must not participate in selection refresh.
+    fs::rename(&s.dir, filepath::join(&[&s.root, "project-away"])).unwrap();
+    let (code, out, error) = s.run(&["run", "-C", &other, "--scope", "registered", "--project", project, id, "--json"]);
+    assert_eq!(code, EXIT_OK, "{error}");
+    let started: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert!(runui_catalog::same_directory(started["directory"].as_str().unwrap(), &other));
+    let path = std::path::Path::new(&other).join("cwd.txt");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while !path.exists() {
+        assert!(std::time::Instant::now() < deadline);
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    assert!(runui_catalog::same_directory(fs::read_to_string(path).unwrap().trim(), &other));
+    assert_eq!(s.run(&["projects", "forget", project, "--json"]).0, EXIT_OK);
+    assert!(std::path::Path::new(&other).join("Makefile").exists());
+    assert!(std::path::Path::new(started["output_file"].as_str().unwrap()).exists());
+}

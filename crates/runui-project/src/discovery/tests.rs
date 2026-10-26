@@ -39,6 +39,16 @@ fn a_shared_taskfile_expands_in_each_namespace() {
 }
 
 #[test]
+fn cancelled_discovery_does_not_return_usable_commands_as_a_complete_scan() {
+    let (_temp, dir) = temporary();
+    write(&dir, "Makefile", "test:\n\ttrue\n");
+    let discovery = discover_cancellable(&dir, &dir, Arc::new(AtomicBool::new(true)));
+    assert!(discovery.files.is_empty());
+    assert!(!discovery.complete());
+    assert!(discovery.diagnostics.iter().any(|item| item.message.contains("cancelled")));
+}
+
+#[test]
 fn cycles_keep_the_entry_file_and_report_partial_discovery() {
     let (_temp, dir) = temporary();
     write(&dir, "Taskfile.yml", "version: '3'\nincludes:\n  b: b/Taskfile.yml\ntasks:\n  a: echo a\n");

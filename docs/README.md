@@ -13,6 +13,7 @@ The pages are static HTML and CSS with no JavaScript, external fonts, or build s
 
 - [Four panels](index.html#overview): Favorites, Project, Runs, and Log.
 - [Everyday use](index.html#workflow): discover, favorite, run, leave, return, and stop.
+- [Command catalog](command-catalog.md): Project/Workspace/Registered search, recent recall, project picker, diagnostics, CLI IDs and preparation.
 - [Log](index.html#log): review successful and failed results, clear notices, and revisit history.
 - [Tmux](index.html#status-bars): global counts, hidden zeros, and the shared review state.
 - [MCP](index.html#mcp): configuration, all six tools, agent identity, persistence, and tool-call examples.
@@ -35,6 +36,8 @@ python3 -B scripts/capture-docs.py --binary bin/runui
 ```
 
 The default binary is `bin/runui`, the output of `task build`. The script works with temporary HOME/XDG directories, generated project files, and a private tmux socket. It launches real supervisors and an MCP stdio client named `docs-agent`, then stops demo processes and removes the temporary state. It never reads or clears personal runui data and needs no agent account or network connection.
+
+For focused real-TUI checks, run `python3 -B scripts/verify-palette.py` and `python3 -B scripts/verify-registry.py` after building, or set `RUNUI_BIN` to another build. They retain PNG/ANSI captures in a printed temporary folder. The registry check creates two local repositories and two actual Git worktrees and verifies duplicate commands, missing checkouts, exact cwd, project opening and forgetting without deleting run data. It requires Git in addition to the palette check's tools. The final complete-v1 media refresh remains tracked in [the implementation audit](implementation-status.md).
 
 | Output | Shows |
 | --- | --- |

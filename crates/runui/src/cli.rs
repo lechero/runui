@@ -16,6 +16,7 @@ use runui_tui as tui;
 
 mod catalog;
 mod mcp;
+mod projects;
 
 // Exit codes.
 pub(crate) const EXIT_OK: i32 = 0;
@@ -42,7 +43,9 @@ Usage:
   runui find [-C DIR] [--mode commands|recent|all] [--json] [QUERY]
   runui inspect [-C DIR] [--json] ID  inspect a command and its fingerprint
   runui run [-C DIR] [--json] [--fingerprint VALUE] ID -- [ARGS...]
-  Catalog commands accept --scope project|workspace (default: project).
+  runui projects [add DIR|forget ID_OR_DIR] [--json]  manage explicit checkouts
+  Catalog commands accept --scope project|workspace|registered (default: project).
+  Registered inspect/run also require --project PROJECT_ID from discovery.
 
 Flags:
   -C DIR  the folder (default: this one, or the project above it with a
@@ -111,6 +114,9 @@ fn dispatch(
     if matches!(cmd, "commands" | "find" | "inspect" | "run") {
         return catalog::dispatch(cmd, args, stdout);
     }
+    if cmd == "projects" {
+        return projects::dispatch(args, stdout);
+    }
     let (dir, rest) = parse_flags(args)?;
     let clear_status = cmd == "status" && rest.as_slice() == ["clear"];
     let tmux_status = cmd == "status" && rest.as_slice() == ["tmux"];
@@ -124,7 +130,13 @@ fn dispatch(
     let abs = filepath::abs(&dir).map_err(anyhow::Error::from)?;
     let home = filepath::user_home_dir().unwrap_or_default();
     let dir = project::root(&abs, &home);
-    let w = Workspace { repo: project::context_root(&dir, &home), dir, home, invocation_dir: abs };
+    let w = Workspace {
+        repo: project::context_root(&dir, &home),
+        dir,
+        home,
+        invocation_dir: abs,
+        index: runui_catalog::index::Index::default(),
+    };
     match cmd {
         "" => open(canceled, &w, stderr)?,
         "list" => list(&w, stdout)?,
@@ -191,6 +203,7 @@ struct Workspace {
     repo: String,
     home: String,
     invocation_dir: String,
+    index: runui_catalog::index::Index,
 }
 
 impl Workspace {
@@ -201,21 +214,104 @@ impl Workspace {
         let _ = usage_store.reconcile(&observed);
         let usage = usage_store.load();
         let directory = scope.directory(&self.dir, &self.repo);
+        let favorites = self.favorites()?;
+        let environment = runui_catalog::Environment::current().with_shell(&store.shell);
+        let default_usage = runui_catalog::usage::Data::default();
+        if directory.is_none() {
+            let registry = self.registry()?;
+            let projects = match registry.load() {
+                Ok(data) => data.projects,
+                Err(error) => {
+                    let mut snapshot = runui_catalog::Snapshot::default();
+                    snapshot.diagnostics.push(runui_catalog::Diagnostic {
+                        path: registry.file().to_string_lossy().into_owned(),
+                        message: error.to_string(),
+                        source: None,
+                        kind: "registry".into(),
+                    });
+                    return Ok(snapshot);
+                }
+            };
+            self.index.request(&projects);
+            let indexed = self.index.wait(std::time::Duration::from_secs(2));
+            let mut snapshot = runui_catalog::Snapshot::registered(
+                &indexed,
+                &environment,
+                &self.invocation_dir,
+                &favorites,
+                &observed,
+                usage.as_ref().unwrap_or(&default_usage),
+            );
+            if let Err(error) = usage {
+                snapshot.diagnostics.push(runui_catalog::Diagnostic {
+                    path: usage_store.file().to_string_lossy().into_owned(),
+                    message: error.to_string(),
+                    source: Some("usage".into()),
+                    kind: "history".into(),
+                });
+            }
+            return Ok(snapshot);
+        }
+        let directory = directory.expect("local scope was checked");
         let mut context = runui_catalog::Context::new(&directory, &self.repo);
         context.invocation_dir = runui_catalog::canonical(&self.invocation_dir);
         context.environment = context.environment.with_shell(&store.shell);
-        let default_usage = runui_catalog::usage::Data::default();
         let mut snapshot = runui_catalog::Snapshot::build(
             &context,
             &project::discover(&directory, &self.repo),
             &if scope == runui_catalog::Scope::Workspace {
-                self.favorites()?.for_tree(&directory)
+                favorites.for_tree(&directory)
             } else {
-                self.favorites()?.for_dir(&self.dir)
+                favorites.for_dir(&self.dir)
             },
             &observed,
             usage.as_ref().unwrap_or(&default_usage),
         );
+        if let Err(error) = usage {
+            snapshot.diagnostics.push(runui_catalog::Diagnostic {
+                path: usage_store.file().to_string_lossy().into_owned(),
+                message: error.to_string(),
+                source: Some("usage".into()),
+                kind: "history".into(),
+            });
+        }
+        Ok(snapshot)
+    }
+
+    fn registry(&self) -> Result<runui_catalog::registry::Store> {
+        Ok(runui_catalog::registry::Store::beside_favorites(&favorites::default_file()?))
+    }
+
+    fn catalog_selection(
+        &self,
+        scope: runui_catalog::Scope,
+        registered: Option<&str>,
+    ) -> Result<runui_catalog::Snapshot> {
+        if scope != runui_catalog::Scope::Registered {
+            if registered.is_some() {
+                return Err(anyhow!("project identity applies only to registered scope"));
+            }
+            return self.catalog_scoped(scope);
+        }
+        let selected = self
+            .registry()?
+            .project(registered.ok_or_else(|| anyhow!("registered selection requires its project identity"))?)?;
+        selected.check_directory()?;
+        let store = self.runs()?;
+        let usage_store = runui_catalog::usage::Store::for_runs(&store.root);
+        let usage = usage_store.load();
+        let default_usage = runui_catalog::usage::Data::default();
+        let mut context = runui_catalog::Context::new(&selected.directory, &selected.directory);
+        context.invocation_dir = runui_catalog::canonical(&self.invocation_dir);
+        context.environment = context.environment.with_shell(&store.shell);
+        let mut snapshot = runui_catalog::Snapshot::build(
+            &context,
+            &project::discover(&selected.directory, &selected.directory),
+            &self.favorites()?.for_tree(&selected.directory),
+            &store.list()?,
+            usage.as_ref().unwrap_or(&default_usage),
+        )
+        .with_registration(&selected, runui_catalog::index::branch(&selected.directory).as_deref());
         if let Err(error) = usage {
             snapshot.diagnostics.push(runui_catalog::Diagnostic {
                 path: usage_store.file().to_string_lossy().into_owned(),

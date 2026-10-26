@@ -102,6 +102,8 @@ pub struct Config {
     /// the home folder, written ~
     pub home: String,
     pub favorites: Favorites,
+    pub registry: runui_catalog::registry::Store,
+    pub index: runui_catalog::index::Index,
     pub runs: Arc<dyn Runner>,
     /// project::discover, unless a test gives its own
     pub discover: fn(&str, &str) -> Discovery,
@@ -117,6 +119,8 @@ impl Config {
             invocation_dir: dir.to_string(),
             repo: repo.to_string(),
             home: home.to_string(),
+            registry: runui_catalog::registry::Store::beside_favorites(favorites.file()),
+            index: runui_catalog::index::Index::default(),
             favorites,
             runs,
             discover: project::discover,
@@ -393,6 +397,14 @@ impl App {
             Ok(message) => return self.palette_loaded(*message),
             Err(msg) => msg,
         };
+        let msg = match msg.downcast::<palette::RegistryChanged>() {
+            Ok(message) => return self.registry_changed(*message),
+            Err(message) => message,
+        };
+        let msg = match msg.downcast::<palette::ProjectOpened>() {
+            Ok(message) => return self.project_opened(*message),
+            Err(message) => message,
+        };
         let msg = match msg.downcast::<palette::Launched>() {
             Ok(message) => return self.palette_launched(*message),
             Err(msg) => msg,
@@ -504,6 +516,9 @@ impl App {
     /// refresh_files checks and rereads dependencies away from the interface.
     /// Manual refreshes are coalesced while a scan is in flight.
     fn refresh_files(&mut self, manual: bool) -> Cmd {
+        if manual {
+            self.cfg.index.invalidate();
+        }
         if self.discovery_busy {
             self.discovery_queued |= manual;
             return None;

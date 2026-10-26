@@ -6,6 +6,7 @@ pub struct Query {
     pub limit: usize,
     pub offset: usize,
     pub kinds: Vec<Kind>,
+    pub registry_id: Option<String>,
 }
 #[derive(Clone, Debug)]
 struct Term {
@@ -81,7 +82,7 @@ impl Query {
             return Err("close the quoted search token".into());
         }
         push(&mut word, literal, &mut terms)?;
-        Ok(Self { terms, limit: 200, offset: 0, kinds: Vec::new() })
+        Ok(Self { terms, limit: 200, offset: 0, kinds: Vec::new(), registry_id: None })
     }
 }
 
@@ -94,6 +95,9 @@ pub struct Hit<'a> {
 pub(crate) fn search<'a>(entries: &'a [Entry], query: &Query) -> Vec<Hit<'a>> {
     let mut hits = Vec::new();
     for entry in entries {
+        if query.registry_id.as_ref().is_some_and(|id| entry.registry_id.as_ref() != Some(id)) {
+            continue;
+        }
         if !query.kinds.is_empty() && !query.kinds.contains(&entry.kind) {
             continue;
         }
@@ -169,9 +173,14 @@ fn text_match(entry: &Entry, term: &str) -> Option<i64> {
     for alias in &entry.favorite_names {
         best = best.max(quality(&alias.to_lowercase(), term).map(|quality| quality + 600));
     }
-    for (text, weight) in
-        [(&entry.relative_directory, 350), (&entry.project, 350), (&entry.command, 150), (&entry.description, 0)]
-    {
+    for (text, weight) in [
+        (entry.relative_directory.as_str(), 350),
+        (entry.project.as_str(), 350),
+        (entry.checkout.as_str(), 300),
+        (entry.branch.as_deref().unwrap_or_default(), 250),
+        (entry.command.as_str(), 150),
+        (entry.description.as_str(), 0),
+    ] {
         best = best.max(quality(&text.to_lowercase(), term).map(|quality| quality + weight));
     }
     best

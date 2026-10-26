@@ -5,6 +5,7 @@ use std::fs;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use runui_core::golang::{filepath, read_dir, read_file};
 use sha2::{Digest, Sha256};
@@ -98,6 +99,7 @@ pub(crate) struct Scan {
     visited_folders: HashSet<String>,
     expansions: HashMap<Source, usize>,
     current_dependencies: Option<HashSet<String>>,
+    cancel: Option<Arc<AtomicBool>>,
 }
 
 impl Scan {
@@ -112,10 +114,14 @@ impl Scan {
             visited_folders: HashSet::new(),
             expansions: HashMap::new(),
             current_dependencies: None,
+            cancel: None,
         }
     }
 
     pub(crate) fn watch(&mut self, path: &str) {
+        if self.cancelled() {
+            return;
+        }
         let path = filepath::clean(path);
         if let Some(current) = &mut self.current_dependencies {
             current.insert(path.clone());
@@ -166,6 +172,9 @@ impl Scan {
     }
 
     fn enter_folder(&mut self, path: &str) -> bool {
+        if self.cancelled() {
+            return false;
+        }
         if !self.visited_folders.contains(path) && self.visited_folders.len() >= MAX_FOLDERS {
             self.problem(None, &self.root.clone(), format!("discovery stopped at the {MAX_FOLDERS}-folder limit"));
             return false;
@@ -177,6 +186,9 @@ impl Scan {
     }
 
     pub(crate) fn expand(&mut self, source: Source, path: &str) -> bool {
+        if self.cancelled() {
+            return false;
+        }
         let count = self.expansions.entry(source).or_default();
         if *count == 1000 {
             self.problem(Some(source), path, format!("{} expansion limit reached", source.label()));
@@ -187,11 +199,19 @@ impl Scan {
     }
 
     pub(crate) fn can_read(&mut self, path: &str) -> bool {
+        if self.cancelled() {
+            self.problem(None, &self.root.clone(), "discovery was cancelled");
+            return false;
+        }
         if self.attempted.contains(&filepath::clean(path)) || self.attempted.len() < MAX_FILES {
             return true;
         }
         self.problem(None, &self.root.clone(), format!("discovery stopped at the {MAX_FILES}-file limit"));
         false
+    }
+
+    fn cancelled(&self) -> bool {
+        self.cancel.as_ref().is_some_and(|cancel| cancel.load(Ordering::Relaxed))
     }
 
     pub(crate) fn read(&mut self, path: &str) -> anyhow::Result<Arc<[u8]>> {
@@ -213,8 +233,21 @@ impl Scan {
 /// discover reads a bounded project snapshot. It never evaluates project code.
 /// stop is the repository root used to resolve package managers and wrappers.
 pub fn discover(dir: &str, stop: &str) -> Discovery {
+    discover_inner(dir, stop, None)
+}
+
+/// Background indexing cancels obsolete work between directory/file reads.
+pub fn discover_cancellable(dir: &str, stop: &str, cancel: Arc<AtomicBool>) -> Discovery {
+    discover_inner(dir, stop, Some(cancel))
+}
+
+fn discover_inner(dir: &str, stop: &str, cancel: Option<Arc<AtomicBool>>) -> Discovery {
     let dir = filepath::clean(dir);
     let mut scan = Scan::new(&dir);
+    scan.cancel = cancel;
+    if scan.cancelled() {
+        scan.problem(None, &dir, "discovery was cancelled");
+    }
     scan.watch(&dir);
     scan.watch(&filepath::join(&[stop, ".git"]));
     let members = crate::workspace::declaration(&dir, &mut scan);
@@ -232,6 +265,9 @@ pub fn discover(dir: &str, stop: &str) -> Discovery {
     let mut files = Vec::new();
     let mut included = HashSet::new();
     for folder in folders {
+        if scan.cancelled() {
+            break;
+        }
         for (source, path, label) in candidates(&folder) {
             if let Some(members) = &members
                 && !folder.rel.is_empty()
@@ -323,6 +359,9 @@ fn folders(
     for depth in 0..=if deep { max_depth } else { 0 } {
         let mut next = Vec::new();
         for (path, rel) in &level {
+            if scan.cancelled() {
+                break;
+            }
             scan.watch(path);
             let entries = match read_dir(Path::new(path)) {
                 Ok(entries) => entries,
@@ -335,6 +374,9 @@ fn folders(
                 continue;
             }
             for entry in entries {
+                if scan.cancelled() {
+                    break;
+                }
                 let Some(name) = entry.file_name().to_str().map(str::to_string) else { continue };
                 if name == ".git" || SKIPPED.contains(&name.as_str()) {
                     if let Some(rules) = members.filter(|_| declared)
