@@ -526,7 +526,6 @@ impl App {
         self.panels[PANEL_RUNS].views[RUNS_EVERYWHERE].set(all);
         self.set_agents(agents);
         self.sync_output();
-        self.acknowledge_viewed_run();
     }
 
     /// set_agents gives the Agents tab its rows: the runs agents started
@@ -586,11 +585,11 @@ impl App {
         self.last_run(&it.dir, &it.command).cloned()
     }
 
-    /// A focused output pane means the run's result was viewed. Selecting a
-    /// row for preview alone does not dismiss it from the status line.
+    /// A finished result is viewed when its output is drawn, even while
+    /// the sidebar has the focus. Live runs stay in the status counts.
     fn acknowledge_viewed_run(&self) {
-        if self.focus == Focus::Pane
-            && let Some(r) = self.pane_run()
+        if let Some(r) = self.pane_run()
+            && matches!(r.state(), runs::State::Exited | runs::State::Lost)
         {
             let _ = self.cfg.runs.acknowledge(&r);
         }
@@ -685,7 +684,6 @@ impl App {
             self.sync_output();
         } else if m(&k.focus_pane) {
             self.focus = Focus::Pane;
-            self.acknowledge_viewed_run();
         } else if m(&k.up) {
             self.shown_mut().move_by(-1);
             self.sync_output();
@@ -840,7 +838,6 @@ impl App {
         let it = self.selected()?;
         if it.kind == Kind::Run {
             self.focus = Focus::Pane;
-            self.acknowledge_viewed_run();
             return None;
         }
         if self.last_run(&it.dir, &it.command).is_some_and(|r| r.live()) {
@@ -1114,7 +1111,6 @@ impl App {
         self.keys_shown = false;
         if self.geom.pane.has(m.x, m.y) {
             self.focus = Focus::Pane;
-            self.acknowledge_viewed_run();
             return None;
         }
         let areas = self.geom.panels.clone();

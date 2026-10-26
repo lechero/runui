@@ -433,6 +433,7 @@ impl App {
         } else if self.form.is_some() {
             lines = self.form_lines();
         } else {
+            self.acknowledge_viewed_run();
             lines = self.header();
             let h = self.out_height();
             if let Some(out) = &self.out {

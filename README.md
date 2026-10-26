@@ -124,7 +124,7 @@ set -ag status-right '#(runui status tmux)'
 
 If `runui status` shows counts but tmux shows nothing, use the absolute path from `command -v runui` inside `#(...)` and reload your tmux configuration. The tmux server may have a different `PATH` from a new shell.
 
-Finished results stay counted until you **focus their output** in Runui—press `enter` on a run, press `0`, or click the output pane. Merely selecting a row previews it and leaves the count in place. If you are already focused on a run when it finishes, its result is dismissed then. Run `runui status clear` to dismiss all finished counts at once. Neither action deletes run history or output, and active runs remain counted.
+Finished results stay counted until you **view their output** in Runui. Selecting a run, favorite, or project command that shows a finished run's output marks that result as reviewed; the output pane does not need focus. A run that finishes while its output is visible is marked as reviewed then. Running processes remain counted. Run `runui status clear` to dismiss all finished counts at once. Viewing or clearing results keeps run history and output.
 
 ## Use with an agent
 
