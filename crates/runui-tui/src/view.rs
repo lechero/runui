@@ -10,7 +10,7 @@ use runui_tea::style::{self, CENTER, LEFT, TOP};
 
 use crate::rows::{Item, Kind, View};
 use crate::styles::*;
-use crate::{App, Area, Focus, Geometry, PANEL_RUNS, RUNS_AGENTS, RUNS_EVERYWHERE};
+use crate::{App, Area, Focus, Geometry, PANEL_ERRORS, PANEL_RUNS, RUNS_AGENTS, RUNS_EVERYWHERE};
 
 /// PORTRAIT_BELOW is how wide the window must be for the sidebar beside
 /// the pane: narrower, the panel with the focus goes on top of it.
@@ -208,12 +208,16 @@ impl App {
             .iter()
             .enumerate()
             .map(|(j, v)| {
+                let name =
+                    if i == PANEL_ERRORS { format!("Errors ({})", self.pending_errors()) } else { v.name.clone() };
                 if j == p.cur && focused {
-                    S_ACCENT.bold(true).render(&v.name)
+                    S_ACCENT.bold(true).render(&name)
+                } else if j == p.cur && i == PANEL_ERRORS && self.pending_errors() > 0 {
+                    S_BAD.render(&name)
                 } else if j == p.cur {
-                    S_TITLE.render(&v.name)
+                    S_TITLE.render(&name)
                 } else {
-                    S_DIM.render(&v.name)
+                    S_DIM.render(&name)
                 }
             })
             .collect();
@@ -226,9 +230,9 @@ impl App {
     /// focus and in grey when it hasn't; a problem reading it and the
     /// filter first.
     fn panel_rows(&mut self, i: usize, width: i32, height: i32, focused: bool) -> Vec<String> {
-        // the tabs with runs from every folder: Everywhere, and Agents
-        let everywhere = i == PANEL_RUNS && self.panels[i].cur >= RUNS_EVERYWHERE;
-        let agents = i == PANEL_RUNS && self.panels[i].cur == RUNS_AGENTS;
+        // Errors and the Runs tabs that cover every folder
+        let everywhere = i == PANEL_ERRORS || (i == PANEL_RUNS && self.panels[i].cur >= RUNS_EVERYWHERE);
+        let agents = i == PANEL_ERRORS || (i == PANEL_RUNS && self.panels[i].cur == RUNS_AGENTS);
         let p = &mut self.panels[i];
         let v = &mut p.views[p.cur];
         let mut out = Vec::new();
@@ -264,7 +268,11 @@ impl App {
         let top = v.top;
         let rows: Vec<Item> = v.shown.iter().skip(top as usize).take(height as usize).cloned().collect();
         for (n, it) in rows.iter().enumerate() {
-            let mut r = ansi::truncate(&self.row(everywhere, agents, it), width, "…");
+            let mut row = self.row(everywhere, agents, it);
+            if i == PANEL_ERRORS && !self.cfg.runs.pending_error(&it.run) {
+                row = format!("{} · {row}", S_DIM.render("reviewed"));
+            }
+            let mut r = ansi::truncate(&row, width, "…");
             if top + n as i32 == at {
                 let style = if focused { S_ROW_ACTIVE } else { S_ROW_IDLE };
                 r = style.render(&pad(&ansi::strip(&r), width));
@@ -538,7 +546,7 @@ impl App {
         }
         lines.push(String::new());
         lines
-            .push(S_DIM.render("a adds a command of your own; tab and 1-3 go from panel to panel; ? shows every key."));
+            .push(S_DIM.render("a adds a command of your own; tab and 1-4 go from panel to panel; ? shows every key."));
         lines
     }
 
@@ -587,7 +595,7 @@ impl App {
             "Moving about",
             &[
                 (format!("{} {}", h(&k.next_panel), h(&k.prev_panel)), "the next and the previous panel"),
-                (h(&k.panels), "a panel: 1 Favorites, 2 the project's commands, 3 Runs"),
+                (h(&k.panels), "a panel: 1 Favorites, 2 the project's commands, 3 Runs, 4 Errors"),
                 (h(&k.tabs), tabs),
                 ("↑/k ↓/j g G".into(), "along its rows"),
                 (h(&k.filter), "filter its rows by what you type; esc clears it"),

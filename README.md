@@ -75,11 +75,13 @@ Use `m` to star a discovered command for this folder, or `a` to add your own she
 
 The Runs panel has **Here** and **Everywhere** tabs, and an **Agents** tab once an agent has started a run through `runui mcp`. `●` means running, `✓` exited successfully, `✗` failed, `■` was stopped, and `?` means runui lost track of it.
 
+Press `4` to open **Errors**, which lists unreviewed failures and lost runs from **every folder**, matching the error count in tmux. Select a row to view its output and mark it as reviewed. The selected result stays visible while you read it; other errors wait for you to select them. History and logs remain in Runs.
+
 ### Keys at a glance
 
 | Keys | Action |
 | --- | --- |
-| `tab` / `shift+tab`, `1`–`3` | Move between Favorites, Project, and Runs. |
+| `tab` / `shift+tab`, `1`–`4` | Move between Favorites, Project, Runs, and Errors. |
 | `[` / `]` | Switch source tabs or Here / Everywhere / Agents. |
 | `j` / `k`, `g` / `G` | Move through rows. |
 | `/` | Filter rows by name, folder, command, or description. |
@@ -124,7 +126,7 @@ set -ag status-right '#(runui status tmux)'
 
 If `runui status` shows counts but tmux shows nothing, use the absolute path from `command -v runui` inside `#(...)` and reload your tmux configuration. The tmux server may have a different `PATH` from a new shell.
 
-Finished results stay counted until you **view their output** in Runui. Selecting a run, favorite, or project command that shows a finished run's output marks that result as reviewed; the output pane does not need focus. A run that finishes while its output is visible is marked as reviewed then. Running processes remain counted. Run `runui status clear` to dismiss all finished counts at once. Viewing or clearing results keeps run history and output.
+Finished results stay counted until you **view their output** in Runui. Selecting a run, favorite, or project command that shows a finished run's output marks that result as reviewed; the output pane does not need focus. A run that finishes while its output is visible is marked as reviewed then. The Errors panel (`4`) makes unreviewed failures from other folders easy to find. Running processes remain counted. Run `runui status clear` to dismiss all finished counts at once. Viewing or clearing results keeps run history and output.
 
 ## Use with an agent
 

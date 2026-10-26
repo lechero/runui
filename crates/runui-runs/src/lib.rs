@@ -359,6 +359,17 @@ impl Store {
         Path::new(&r.folder).join(SEEN_FILE).exists()
     }
 
+    /// pending_error says a failed or lost run still needs to be viewed.
+    /// This is shared by the Errors panel and the status counts.
+    pub fn pending_error(&self, r: &Run) -> bool {
+        let errored = match r.state() {
+            State::Lost => true,
+            State::Exited => r.exit != Some(0),
+            _ => false,
+        };
+        errored && !self.acknowledged(r)
+    }
+
     /// acknowledge dismisses a finished run from status counts, keeping its
     /// metadata and output. A running run still gets counted when it ends.
     pub fn acknowledge(&self, r: &Run) -> Result<()> {

@@ -681,3 +681,102 @@ fn the_filter_puts_names_first() {
     v.set_filter("");
     assert_eq!(v.current().unwrap().name, "build:dev", "cleared, the cursor isn't on the row it was on");
 }
+
+/// saved_result gives the UI a finished or lost run without starting a process.
+fn saved_result(w: &World, name: &str, dir: &str, exit: Option<i32>) -> Run {
+    let folder = filepath::join(&[&w.runs.root, name]);
+    fs::create_dir_all(&folder).unwrap();
+    let mut r = Run::default().with_folder(&folder);
+    r.id = name.to_string();
+    r.name = name.to_string();
+    r.dir = dir.to_string();
+    r.command = format!("echo {name}");
+    r.started = Utc::now();
+    r.ended = exit.map(|_| Utc::now());
+    r.exit = exit;
+    runs::write_run(&r).unwrap();
+    fs::write(r.output(), format!("output of {name}\n")).unwrap();
+    r
+}
+
+#[test]
+fn errors_list_pending_failures_from_every_folder() {
+    let w = new_world();
+    saved_result(&w, "here", &w.dir, Some(7));
+    let elsewhere = filepath::join(&[&w.home, "projects", "other"]);
+    saved_result(&w, "elsewhere", &elsewhere, Some(9));
+    saved_result(&w, "lost", &elsewhere, None);
+    saved_result(&w, "success", &w.dir, Some(0));
+    let viewed = saved_result(&w, "viewed", &w.dir, Some(1));
+    w.runs.acknowledge(&viewed).unwrap();
+    let mut stopped = saved_result(&w, "stopped", &w.dir, Some(1));
+    stopped.stopped = true;
+    runs::write_run(&stopped).unwrap();
+    let (live, err) = w.runs.start(&w.dir, "live", "echo active; sleep 30");
+    assert!(err.is_none(), "{err:?}");
+    let mut h = open(&w);
+    let mut names: Vec<_> = h.m.a.panels[PANEL_ERRORS].views[0].all.iter().map(|it| it.name.as_str()).collect();
+    names.sort_unstable();
+    assert_eq!(names, ["elsewhere", "here", "lost"]);
+    assert_eq!(h.m.a.pending_errors(), 3);
+    assert!(h.screen().contains("[4]─Errors (3)"));
+    assert!(w.runs.get(&live.id).unwrap().live());
+    assert!(!w.runs.acknowledged(&live));
+    h.keys(&["4", "/"]);
+    h.typed("elsewhere");
+    h.keys(&["enter"]);
+    assert_eq!(h.selected().name, "elsewhere");
+    assert!(h.screen().contains("~/projects/other"));
+}
+
+#[test]
+fn viewing_an_error_clears_only_that_result_and_keeps_its_output() {
+    let w = new_world();
+    let errors: Vec<_> =
+        ["first", "second", "third"].into_iter().map(|name| saved_result(&w, name, &w.dir, Some(1))).collect();
+    let mut h = open(&w);
+    assert_eq!(h.m.a.pending_errors(), 3);
+    h.keys(&["4"]);
+    let first = h.selected().run.id;
+    assert_eq!(h.m.a.pending_errors(), 2);
+    for _ in 0..3 {
+        h.refresh();
+        assert_eq!(h.selected().run.id, first);
+        assert_eq!(h.m.a.pending_errors(), 2, "refresh acknowledged another error");
+    }
+    assert!(h.screen().contains("reviewed"));
+    h.keys(&["j"]);
+    let second = h.selected().run.id;
+    assert_ne!(first, second);
+    assert_eq!(h.m.a.pending_errors(), 1);
+    h.refresh();
+    assert_eq!(h.selected().run.id, second);
+    h.keys(&["2"]);
+    assert_eq!(h.m.a.panels[PANEL_ERRORS].views[0].all.len(), 1);
+    h.keys(&["4"]);
+    assert_eq!(h.m.a.pending_errors(), 0);
+    assert!(h.screen().contains("Errors (0)"));
+    h.keys(&["2"]);
+    assert!(h.m.a.panels[PANEL_ERRORS].views[0].all.is_empty());
+    drop(h);
+    let mut reopened = open(&w);
+    reopened.keys(&["4"]);
+    assert!(reopened.screen().contains("no pending errors in any folder"));
+    for r in errors {
+        assert!(w.runs.acknowledged(&r));
+        assert!(w.runs.get(&r.id).is_ok());
+        assert!(fs::read_to_string(r.output()).unwrap().contains(&r.name));
+    }
+}
+
+#[test]
+fn errors_notice_results_reviewed_in_another_window() {
+    let w = new_world();
+    let r = saved_result(&w, "failure", &w.dir, Some(1));
+    let mut h = open(&w);
+    assert_eq!(h.m.a.pending_errors(), 1);
+    w.runs.acknowledge(&r).unwrap();
+    h.refresh();
+    assert!(h.m.a.panels[PANEL_ERRORS].views[0].all.is_empty());
+    assert!(h.screen().contains("Errors (0)"));
+}
