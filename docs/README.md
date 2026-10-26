@@ -68,3 +68,5 @@ This regenerates browser/touch/app icons and the repository social card. The [br
 ## Planned discovery improvements
 
 The [research](command-discovery-research.md) and [integration plan](command-discovery-plan.md) are roadmap documents. They distinguish implemented catalog/workspace/registry/Composer work from the remaining Cargo, shell recall, inputs and workflow contracts. The user guide documents current behavior.
+
+[CONTEXT.md](../CONTEXT.md) defines the shared terms. `scripts/probe-discovery.py` records the historical research baseline at `326b0c2`; use the implementation audit and native verification scripts for current behavior.
