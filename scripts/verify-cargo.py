@@ -105,9 +105,10 @@ engine.workspace=true
     # No native call precedes the passive-discovery assertions.
     page=cli('commands','--scope','workspace','--json','source:cargo',cwd=invocation)
     # Cargo targets can be deeper than the other providers' incidental scan.
-    # Keep that whole-snapshot limitation visible and prove Cargo separately
-    # against every native member/target below, rather than suppressing it.
-    assert all(item['source'] is None and item['message']=='incidental folders below depth 3 were not inspected'
+    # Keep that scope policy visible as an informational notice and compare
+    # Cargo coverage against every native member/target below.
+    assert page['complete'],page['diagnostics']
+    assert all(item['kind']=='notice' and item['source'] is None and item['message'].startswith('incidental folders below depth 3')
                for item in page['diagnostics']),page['diagnostics']
     commands=page['commands']
     assert not (project/'Cargo.lock').exists()
