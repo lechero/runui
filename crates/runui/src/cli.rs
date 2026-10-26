@@ -25,7 +25,7 @@ pub(crate) const EXIT_USAGE: i32 = 2;
 
 const USAGE: &str = "runui keeps a folder's commands at hand and runs them: the project's own
 (a Taskfile's tasks, package.json's scripts, a Makefile's targets, a docker
-compose file's services, Maven builds, Composer scripts), in its folder and the ones
+compose file's services, Maven builds, Composer scripts, Cargo actions), in its folder and the ones
 under it three deep (a monorepo's packages, a Maven project's modules), the
 ones you star as favorites (m), and commands of your own (a). What a command
 prints shows as it's printed. Quit, and it keeps running; open runui again
@@ -50,7 +50,7 @@ Usage:
 
 Flags:
   -C DIR  the folder (default: this one, or the project above it with a
-          Taskfile, package.json, Makefile, compose file, pom.xml or composer.json, up to
+          Taskfile, package.json, Makefile, compose file, pom.xml, composer.json or Cargo.toml, up to
           the repository's root)
 
 The favorites are kept in ~/.config/runui/favorites.json, the runs (what each
@@ -385,7 +385,7 @@ fn list(w: &Workspace, out: &mut dyn Write) -> Result<()> {
     if files.is_empty() {
         writeln!(
             out,
-            "\nNo Taskfile, package.json, Makefile, compose file, pom.xml or composer.json here, or in the folders under it."
+            "\nNo Taskfile, package.json, Makefile, compose file, pom.xml, composer.json or Cargo.toml here, or in the folders under it."
         )?;
     }
     for f in files {

@@ -22,7 +22,9 @@ struct MemberPattern {
 
 /// A declaration is present even with no members: an empty list must not
 /// silently turn into a recursive glob or incidental package discovery.
+#[derive(Clone)]
 pub(crate) struct Members {
+    pub(crate) source: Source,
     includes: Vec<MemberPattern>,
     excludes: Vec<Pattern>,
     pub(crate) manifest: String,
@@ -32,19 +34,50 @@ const MATCH: MatchOptions =
     MatchOptions { case_sensitive: true, require_literal_separator: true, require_literal_leading_dot: true };
 
 impl Members {
+    fn options(&self) -> MatchOptions {
+        MatchOptions { require_literal_leading_dot: self.source != Source::Cargo, ..MATCH }
+    }
+
+    pub(crate) fn new(
+        source: Source,
+        manifest: String,
+        includes: Vec<String>,
+        excludes: Vec<String>,
+        scan: &mut Scan,
+    ) -> Self {
+        let mut result = Self { source, includes: Vec::new(), excludes: Vec::new(), manifest };
+        for (exclude, text) in
+            includes.into_iter().map(|text| (false, text)).chain(excludes.into_iter().map(|text| (true, text)))
+        {
+            if result.includes.len() + result.excludes.len() >= 256 {
+                scan.problem(Some(source), &result.manifest, "workspace pattern limit reached (256)");
+                break;
+            }
+            match member_pattern(&text, source) {
+                Ok(rule) if exclude => result.excludes.push(rule.pattern),
+                Ok(rule) => result.includes.push(rule),
+                Err(error) => scan.problem(Some(source), &result.manifest, error.to_string()),
+            }
+        }
+        result
+    }
+
     pub(crate) fn names_directory(&self, name: &str) -> bool {
         self.includes.iter().any(|rule| rule.pattern.as_str().split('/').any(|part| part == name))
     }
     pub(crate) fn contains(&self, relative: &str) -> bool {
-        relative.is_empty()
-            || (self.includes.iter().any(|rule| rule.pattern.matches_with(relative, MATCH)) && !self.excluded(relative))
+        relative.is_empty() || (self.matches_declared(relative) && !self.excluded(relative))
+    }
+
+    pub(crate) fn matches_declared(&self, relative: &str) -> bool {
+        self.includes.iter().any(|rule| rule.pattern.matches_with(relative, self.options()))
     }
 
     pub(crate) fn excluded(&self, relative: &str) -> bool {
         Path::new(relative)
             .ancestors()
             .filter(|p| !p.as_os_str().is_empty())
-            .any(|part| self.excludes.iter().any(|pattern| pattern.matches_path_with(part, MATCH)))
+            .any(|part| self.excludes.iter().any(|pattern| pattern.matches_path_with(part, self.options())))
     }
 
     pub(crate) fn may_descend(&self, relative: &str) -> bool {
@@ -55,7 +88,9 @@ impl Members {
                     && rule.depth.is_none_or(|depth| path.components().count() <= depth)
                     && path.components().all(|part| {
                         let part = part.as_os_str().to_string_lossy();
-                        !part.starts_with('.') || rule.pattern.as_str().split('/').any(|p| p == part)
+                        self.source == Source::Cargo
+                            || !part.starts_with('.')
+                            || rule.pattern.as_str().split('/').any(|p| p == part)
                     })
             })
     }
@@ -87,7 +122,7 @@ pub(crate) fn declaration(dir: &str, scan: &mut Scan) -> Option<Members> {
             return None;
         }
     };
-    let mut members = Members { includes: Vec::new(), excludes: Vec::new(), manifest };
+    let mut members = Members { source: Source::Npm, includes: Vec::new(), excludes: Vec::new(), manifest };
     for text in patterns {
         let (exclude, text) = text.strip_prefix('!').map_or((false, text.as_str()), |text| (true, text));
         let expanded = match expand_braces(text) {
@@ -102,7 +137,7 @@ pub(crate) fn declaration(dir: &str, scan: &mut Scan) -> Option<Members> {
                 scan.problem(Some(Source::Npm), &members.manifest, "workspace pattern limit reached (256)");
                 return Some(members);
             }
-            match member_pattern(&text) {
+            match member_pattern(&text, Source::Npm) {
                 Ok(rule) if exclude => members.excludes.push(rule.pattern),
                 Ok(rule) => members.includes.push(rule),
                 Err(error) => scan.problem(Some(Source::Npm), &members.manifest, error.to_string()),
@@ -151,13 +186,14 @@ fn package_patterns(value: &serde_json::Value) -> anyhow::Result<Option<Vec<Stri
         .map(Some)
 }
 
-fn member_pattern(text: &str) -> anyhow::Result<MemberPattern> {
+fn member_pattern(text: &str, source: Source) -> anyhow::Result<MemberPattern> {
     anyhow::ensure!(
         !text.is_empty() && !text.contains('\0') && !Path::new(text).is_absolute(),
         "workspace pattern {text:?} must stay within the workspace root"
     );
     anyhow::ensure!(
-        !text.contains(['\\', '$']) && !text.contains("(") && !text.contains(")"),
+        !text.contains('\\')
+            && (source == Source::Cargo || (!text.contains('$') && !text.contains("(") && !text.contains(")"))),
         "unsupported dynamic or extended workspace pattern {text:?}"
     );
     let mut parts = Vec::new();
@@ -269,8 +305,20 @@ pub fn workspace_root(project: &str, checkout: &str) -> String {
     let project = filepath::clean(project);
     let checkout = filepath::clean(checkout);
     let mut scan = Scan::new(&project);
+    if is_file(&filepath::join(&[&project, "Cargo.toml"]))
+        && let Some(workspace) = crate::cargo::enclosing(&project, &checkout, &mut scan)
+    {
+        return workspace.root;
+    }
+
     let mut directory = project.clone();
     for _ in 0..64 {
+        if let Some(workspace) = crate::cargo::declaration(&directory, &mut scan) {
+            let relative = filepath::rel(&directory, &project).unwrap_or_default();
+            if !workspace.rules.excluded(&relative) {
+                return directory;
+            }
+        }
         if let Some(members) = declaration(&directory, &mut scan) {
             let relative = filepath::rel(&directory, &project).unwrap_or_default();
             if relative == "." {
@@ -314,7 +362,7 @@ pub(crate) fn watch_missing_prefixes(root: &str, members: &Members, scan: &mut S
             }
             if fs::symlink_metadata(&path).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
                 scan.problem(
-                    Some(Source::Npm),
+                    Some(members.source),
                     &path.to_string_lossy(),
                     "declared workspace member crosses a symlink; select it explicitly instead",
                 );

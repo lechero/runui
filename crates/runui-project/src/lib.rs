@@ -12,6 +12,7 @@ use std::sync::LazyLock;
 use regex::Regex;
 use runui_core::golang::filepath;
 
+mod cargo;
 mod compose;
 mod composer;
 mod discovery;
@@ -25,6 +26,7 @@ mod workspace;
 mod xml;
 mod yaml;
 
+pub use cargo::{CargoDetails, CargoScope, CargoTarget, TargetKind};
 pub use compose::read_compose;
 pub use composer::read_composer;
 pub use discovery::{Diagnostic, Discovery, canonical_path, discover, discover_cancellable};
@@ -49,12 +51,13 @@ pub enum Source {
     Compose,
     Maven,
     Composer,
+    Cargo,
 }
 
 /// SOURCES are every kind of project file, in the order the Project
 /// panel's tabs go.
-pub const SOURCES: [Source; 6] =
-    [Source::Taskfile, Source::Npm, Source::Make, Source::Compose, Source::Maven, Source::Composer];
+pub const SOURCES: [Source; 7] =
+    [Source::Taskfile, Source::Npm, Source::Make, Source::Compose, Source::Maven, Source::Composer, Source::Cargo];
 
 impl Source {
     /// as_str is the source as it's written down: task, npm, make,
@@ -67,6 +70,7 @@ impl Source {
             Source::Compose => "compose",
             Source::Maven => "maven",
             Source::Composer => "composer",
+            Source::Cargo => "cargo",
         }
     }
 
@@ -79,6 +83,7 @@ impl Source {
             Source::Compose => "Compose",
             Source::Maven => "Maven",
             Source::Composer => "Composer",
+            Source::Cargo => "Cargo",
         }
     }
 }
@@ -118,6 +123,8 @@ pub struct Command {
     pub hook: bool,
     /// Tools required even when an environment prefix starts argv.
     pub requirements: Vec<String>,
+    /// Static Cargo provenance and target inputs; other providers leave it absent.
+    pub cargo: Option<CargoDetails>,
 }
 
 /// File is one of the project's files and the commands in it.
@@ -259,6 +266,7 @@ pub(crate) fn has_project_file(dir: &str) -> bool {
         || !compose_files(dir).is_empty()
         || is_file(&filepath::join(&[dir, "pom.xml"]))
         || is_file(&filepath::join(&[dir, "composer.json"]))
+        || is_file(&filepath::join(&[dir, "Cargo.toml"]))
         || is_file(&filepath::join(&[dir, ".runui.json"]))
 }
 

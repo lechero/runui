@@ -110,6 +110,7 @@ fn read_contents(
             aliases: Vec::new(),
             hook: false,
             requirements: Vec::new(),
+            cargo: None,
             name: full,
             desc: desc(&task),
         });

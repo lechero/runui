@@ -225,15 +225,19 @@ class Session:
     def __init__(self, socket: Path, home: Path, app: Path):
         self.socket, self.home, self.app = socket, home, app
         self.target = "docs"
+        self.environment = {}
+        self.unset = []
 
     def tmux(self, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
         return run("tmux", "-S", str(self.socket), "-f", "/dev/null", *args, check=check)
 
     def start(self) -> None:
         env = demo_env(self.home)
+        env.update(self.environment)
         values = [f"{key}={env[key]}" for key in
-                  ("HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME", "PATH", "TERM", "COLORTERM")]
-        command = shlex.join(["env", "-u", "NO_COLOR", *values, str(BIN), "-C", str(self.app)])
+                  dict.fromkeys(("HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME", "PATH", "TERM", "COLORTERM", *self.environment))]
+        unset = [part for name in self.unset for part in ('-u',name)]
+        command = shlex.join(["env", "-u", "NO_COLOR", *unset, *values, str(BIN), "-C", str(self.app)])
         self.tmux("new-session", "-d", "-s", self.target, "-x", str(COLS), "-y", str(ROWS), command)
         self.wait("[2]", 8)
 
@@ -552,11 +556,51 @@ def capture_composer() -> None:
     tour.save("composer-tour")
 
 
+def capture_cargo() -> None:
+    rustup = shutil.which('rustup')
+    def installed(name):
+        if rustup:
+            return Path(subprocess.run([rustup,'which',name],env=dict(os.environ,RUSTUP_AUTO_INSTALL='0'),text=True,capture_output=True,check=True,timeout=10).stdout.strip()).resolve()
+        return Path(shutil.which(name)).resolve()
+    cargo,rustc = installed('cargo'),installed('rustc')
+    tour = Tour()
+    with demo() as session:
+        app=session.app
+        (app/'Cargo.toml').write_text("[workspace]\nresolver='3'\nmembers=['crates/*']\n")
+        member=app/'crates/demo'
+        (member/'src').mkdir(parents=True)
+        (member/'Cargo.toml').write_text("[package]\nname='demo'\nversion='0.1.0'\nedition='2024'\n[features]\ndemo=[]\n[[bin]]\nname='demo'\nrequired-features=['demo']\n")
+        (member/'src/main.rs').write_text('fn main(){println!("Cargo demo ready");println!("Runtime cwd: {}",std::env::current_dir().unwrap().display());}\n')
+        session.unset=[key for key in os.environ if key.startswith(('CARGO_','RUST','MISE_'))]
+        session.environment={'PATH':f"{session.home/'bin'}:{cargo.parent}:/usr/bin:/bin",'RUSTC':str(rustc),'CARGO_HOME':str(session.home/'cargo-home'),'CARGO_TARGET_DIR':str(session.home/'target'),'RUSTUP_AUTO_INSTALL':'0','CARGO_NET_OFFLINE':'true'}
+        env=demo_env(session.home);env.update(session.environment)
+        for key in session.unset:
+            if key not in session.environment:env.pop(key,None)
+        subprocess.run([str(cargo),'generate-lockfile','--offline'],cwd=app,env=env,capture_output=True,text=True,check=True,timeout=20)
+        session.start()
+        session.key('C-p')
+        session.tmux('send-keys','-l','-t',session.target,'source:cargo check')
+        session.wait('check (default members)')
+        session.shot('cargo','runui · Cargo: default members and explicit workspace actions')
+        tour.frame(session,'1 / Cargo defaults stay distinct from explicit all-member actions',2200)
+        session.key('C-u')
+        session.tmux('send-keys','-l','-t',session.target,'source:cargo run --bin demo')
+        session.wait('required features enabled: demo')
+        tour.frame(session,'2 / Choose a binary; its required features and runtime cwd are explicit',2400)
+        session.key('Enter')
+        session.wait('Cargo demo ready',30)
+        session.wait('exited',10)
+        session.expect_status(0,0,0)
+        tour.frame(session,'3 / Run through the real supervisor and keep the native Cargo output',2400)
+        assert list((session.home/'state/runui/runs').glob('*/run.json'))
+    tour.save('cargo-tour')
+
+
 def main() -> None:
     global BIN
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--binary", type=Path, default=BIN, help="Rust binary to capture (default: bin/runui)")
-    parser.add_argument("--only", choices=["composer"], help="Refresh one focused tour")
+    parser.add_argument("--only", choices=["composer","cargo"], help="Refresh one focused tour")
     args = parser.parse_args()
     BIN = args.binary.expanduser().resolve()
     if not BIN.is_file():
@@ -568,11 +612,15 @@ def main() -> None:
     if args.only == "composer":
         capture_composer()
         return
+    if args.only == "cargo":
+        capture_cargo()
+        return
     capture_tour()
     capture_log()
     capture_agents()
     capture_composer()
-    print("Captured all screenshots, 4 GIFs and 4 videos using isolated real runs.", flush=True)
+    capture_cargo()
+    print("Captured all screenshots, 5 GIFs and 5 videos using isolated real runs.", flush=True)
 
 
 if __name__ == "__main__":

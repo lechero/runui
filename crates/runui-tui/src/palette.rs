@@ -256,14 +256,26 @@ impl Palette {
                     safe(&entry.project),
                     entry.branch.as_ref().map(|branch| format!(" [{}]", safe(branch))).unwrap_or_default()
                 )
+            } else if entry.cargo.is_some() {
+                format!(
+                    "{favorite}{} › {} · {}",
+                    safe(&entry.relative_source_directory()),
+                    safe(&entry.name),
+                    entry.source
+                )
             } else {
-                format!("{favorite}{}  · {}  · {}", safe(&entry.name), entry.source, safe(&entry.relative_directory))
+                format!(
+                    "{favorite}{}  · {}  · {}",
+                    safe(&entry.name),
+                    entry.source,
+                    safe(&entry.relative_source_directory())
+                )
             };
             let row = ansi::truncate(&row, width, "…");
             lines.push(if index == self.at { S_ROW_ACTIVE.render(&row) } else { row });
             if self.scope == Scope::Registered {
                 lines.push(S_DIM.render(&projects::tail(
-                    &format!("{} / {}", safe(&entry.checkout), safe(&entry.relative_directory)),
+                    &format!("{} / {}", safe(&entry.checkout), safe(&entry.relative_source_directory())),
                     width,
                 )));
             }
@@ -303,6 +315,32 @@ impl Palette {
             format!("cwd: {}", safe(&entry.directory)),
             format!("{} · {:?} · {}", entry.source, entry.origin, entry.availability.label()),
         ];
+        if let Some(cargo) = &entry.cargo {
+            lines.push(format!("Cargo {} · {}", cargo.scope.label(), cargo.package.as_deref().unwrap_or("workspace")));
+            lines.push(format!("manifest folder: {}", safe(&cargo.manifest_directory)));
+            if !cargo.default_member_paths.is_empty() {
+                lines.push(format!(
+                    "discovered default members: {}",
+                    cargo.default_member_paths.iter().map(|path| safe(path)).collect::<Vec<_>>().join(", ")
+                ));
+            }
+            if let Some(target) = &cargo.target {
+                lines.push(format!("target source: {}", safe(&target.source_path)));
+                lines.push(format!(
+                    "{} target: {}{}",
+                    target.kind.as_str(),
+                    safe(&target.name),
+                    if target.default_run { " · default-run" } else { "" }
+                ));
+                if !target.required_features.is_empty() {
+                    lines.push(format!(
+                        "required features enabled: {}",
+                        target.required_features.iter().map(|feature| safe(feature)).collect::<Vec<_>>().join(", ")
+                    ));
+                }
+            }
+            lines.push("Static Cargo discovery; native enrichment is not available yet.".into());
+        }
         if !entry.aliases.is_empty() {
             lines.push(format!(
                 "aliases: {}",
@@ -314,7 +352,11 @@ impl Palette {
                 "{}: {}{}",
                 safe(&tool.program),
                 tool.availability.label(),
-                tool.resolved_path.as_ref().map(|path| format!(" · {}", safe(path))).unwrap_or_default()
+                tool.resolved_path
+                    .as_ref()
+                    .filter(|_| self.detail)
+                    .map(|path| format!(" · {}", safe(path)))
+                    .unwrap_or_default()
             ));
         }
         if entry.kind == Kind::Hook {

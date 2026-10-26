@@ -542,6 +542,8 @@ impl App {
     /// set_discovery keeps the source tab, filter and cursor when results change.
     fn set_discovery(&mut self, discovery: Discovery) {
         self.discovery = Arc::new(discovery);
+        let mut context = runui_catalog::Context::new(&self.cfg.dir, &self.cfg.repo);
+        context.invocation_dir = runui_catalog::canonical(&self.cfg.invocation_dir);
         let p = &mut self.panels[PANEL_PROJECT];
         let showing = p.views.get(p.cur).map(|v| v.name.clone()).unwrap_or_default();
         let mut old: HashMap<String, View> = p.views.drain(..).map(|v| (v.name.clone(), v)).collect();
@@ -562,14 +564,24 @@ impl App {
                     problems.push(format!("{}: {err}", f.rel_path()));
                 }
                 for c in f.commands.iter().filter(|command| !command.hook) {
+                    let execution_dir = if c.source == project::Source::Cargo {
+                        context.execution_directory(c.source, &f.dir)
+                    } else {
+                        f.dir.clone()
+                    };
+                    let relative = if c.source == project::Source::Cargo {
+                        filepath::rel(&runui_catalog::canonical(&self.cfg.dir), &execution_dir).unwrap_or_default()
+                    } else {
+                        f.rel.clone()
+                    };
                     items.push(Item {
                         kind: Kind::Command,
                         name: c.name.clone(),
                         command: c.run.clone(),
                         desc: c.desc.clone(),
                         source: c.source.as_str().to_string(),
-                        dir: f.dir.clone(),
-                        rel: f.rel.clone(),
+                        dir: execution_dir,
+                        rel: if relative == "." { String::new() } else { relative },
                         place: f.label.clone(),
                         file: f.rel_path(),
                         ..Default::default()
@@ -599,7 +611,7 @@ impl App {
         if p.views.is_empty() {
             let mut view = View::new(
                 "Project",
-                "no Taskfile, package.json, Makefile, compose file, pom.xml or composer.json here",
+                "no Taskfile, package.json, Makefile, compose file, pom.xml, composer.json or Cargo.toml here",
             );
             if let Some(problem) = self.discovery.diagnostics.first() {
                 view.note = format!("discovery incomplete: {}", problem.description(&self.cfg.dir));

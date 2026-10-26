@@ -39,6 +39,52 @@ fn a_shared_taskfile_expands_in_each_namespace() {
 }
 
 #[test]
+fn oversized_sources_are_partial_and_other_sources_remain_available() {
+    let (_temp, dir) = temporary();
+    write(&dir, "Taskfile.yml", &format!("version: '3'\n# {}", "x".repeat(MAX_SOURCE_BYTES)));
+    write(&dir, "Makefile", "check:\n\ttrue\n");
+    let discovery = discover(&dir, &dir);
+    assert!(!discovery.complete());
+    assert!(
+        discovery
+            .files
+            .iter()
+            .any(|file| file.source == Source::Make && file.commands.iter().any(|command| command.name == "check"))
+    );
+    assert!(discovery.diagnostics.iter().any(|item| item.message.contains("2-MiB")));
+    let mut scan = Scan::new(&dir);
+    assert!(scan.read(&filepath::join(&[&dir, "Taskfile.yml"])).is_err());
+    let count = scan.bytes_read;
+    assert!(scan.read(&filepath::join(&[&dir, "Taskfile.yml"])).is_err());
+    assert_eq!(scan.bytes_read, count, "a rejected source must not be read repeatedly");
+    assert!(scan.contents.is_empty());
+}
+
+#[test]
+fn source_bytes_have_one_global_budget_and_cached_reads_do_not_spend_it_twice() {
+    let (_temp, dir) = temporary();
+    let mut scan = Scan::new(&dir);
+    let body = "x".repeat(MAX_SOURCE_BYTES - 16);
+    for index in 0..9 {
+        let name = format!("source-{index}.txt");
+        write(&dir, &name, &body);
+        let path = filepath::join(&[&dir, &name]);
+        let read = scan.read(&path);
+        if index < 8 {
+            assert!(read.is_ok());
+            let count = scan.bytes_read;
+            assert!(scan.read(&path).is_ok());
+            assert_eq!(scan.bytes_read, count);
+        } else {
+            assert!(read.is_err());
+        }
+    }
+    assert!(scan.bytes_read <= MAX_TOTAL_BYTES + 1);
+    assert!(scan.diagnostics.iter().any(|item| item.message.contains("16-MiB")));
+    assert_eq!(scan.contents.len(), 8);
+}
+
+#[test]
 fn cancelled_discovery_does_not_return_usable_commands_as_a_complete_scan() {
     let (_temp, dir) = temporary();
     write(&dir, "Makefile", "test:\n\ttrue\n");

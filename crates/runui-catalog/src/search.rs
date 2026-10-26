@@ -147,6 +147,7 @@ pub(crate) fn search<'a>(entries: &'a [Entry], query: &Query) -> Vec<Hit<'a>> {
             .then(b.entry.last_used.cmp(&a.entry.last_used))
             .then(b.entry.launches.cmp(&a.entry.launches))
             .then(a.entry.proximity.cmp(&b.entry.proximity))
+            .then(cargo_preference(a.entry).cmp(&cargo_preference(b.entry)))
             .then(a.entry.directory.cmp(&b.entry.directory))
             .then(a.entry.name.cmp(&b.entry.name))
             .then(a.entry.id.cmp(&b.entry.id))
@@ -160,7 +161,12 @@ fn facet_matches(entry: &Entry, facet: &str, value: &str) -> bool {
             entry.project.to_lowercase().contains(value) || entry.project_directory.to_lowercase().contains(value)
         }
         "source" => entry.source.eq_ignore_ascii_case(value),
-        "dir" => entry.relative_directory.to_lowercase().contains(value),
+        "dir" => {
+            entry.relative_directory.to_lowercase().contains(value)
+                || entry.cargo.as_ref().is_some_and(|cargo| {
+                    crate::relative(&entry.checkout, &cargo.manifest_directory).to_lowercase().contains(value)
+                })
+        }
         "state" => entry.state.as_deref() == Some(value),
         "kind" => match value {
             "command" => entry.kind == Kind::Command,
@@ -182,6 +188,9 @@ fn text_match(entry: &Entry, term: &str) -> Option<i64> {
     for alias in entry.favorite_names.iter().chain(&entry.aliases) {
         best = best.max(quality(&alias.to_lowercase(), term).map(|quality| quality + 600));
     }
+    if entry.cargo.is_some() {
+        best = best.max(quality(&entry.relative_source_directory().to_lowercase(), term).map(|quality| quality + 350));
+    }
     for (text, weight) in [
         (entry.relative_directory.as_str(), 350),
         (entry.project.as_str(), 350),
@@ -193,6 +202,17 @@ fn text_match(entry: &Entry, term: &str) -> Option<i64> {
         best = best.max(quality(&text.to_lowercase(), term).map(|quality| quality + weight));
     }
     best
+}
+
+fn cargo_preference(entry: &Entry) -> usize {
+    entry.cargo.as_ref().map_or(0, |cargo| {
+        let scope = match cargo.scope {
+            runui_project::CargoScope::DefaultMembers => 0,
+            runui_project::CargoScope::Package => 2,
+            runui_project::CargoScope::AllMembers => 4,
+        };
+        scope + usize::from(cargo.target.as_ref().is_some_and(|target| !target.default_run))
+    })
 }
 
 fn quality(text: &str, term: &str) -> Option<i64> {

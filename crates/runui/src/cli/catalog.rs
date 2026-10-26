@@ -200,7 +200,7 @@ pub(super) fn dispatch(
                         entry.id,
                         text_line(&entry.name),
                         text_line(&entry.source),
-                        text_line(&entry.relative_directory),
+                        text_line(&entry.relative_source_directory()),
                         text_line(&entry.project_directory)
                     )
                     .map_err(anyhow::Error::from)?;

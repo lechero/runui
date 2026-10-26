@@ -13,7 +13,7 @@ The pages are static HTML and CSS with no JavaScript, external fonts, or build s
 
 - [Four panels](index.html#overview): Favorites, Project, Runs, and Log.
 - [Everyday use](index.html#workflow): discover, favorite, run, leave, return, and stop.
-- [Command catalog](command-catalog.md): Project/Workspace/Registered search, recent recall, project picker, diagnostics, Composer, CLI IDs and preparation.
+- [Command catalog](command-catalog.md): Project/Workspace/Registered search, recent recall, project picker, diagnostics, Composer/Cargo, CLI IDs and preparation.
 - [Log](index.html#log): review successful and failed results, clear notices, and revisit history.
 - [Tmux](index.html#status-bars): global counts, hidden zeros, and the shared review state.
 - [MCP](index.html#mcp): configuration, all six tools, agent identity, persistence, and tool-call examples.
@@ -37,7 +37,10 @@ task build
 python3 -B scripts/capture-docs.py --binary bin/runui
 # Refresh only the Composer tour:
 python3 -B scripts/capture-docs.py --binary bin/runui --only composer
+python3 -B scripts/capture-docs.py --binary bin/runui --only cargo
 ```
+
+The Cargo tour additionally uses an already installed Rust toolchain; it never provisions one or downloads project dependencies.
 
 The default binary is `bin/runui`, the output of `task build`. The script works with temporary HOME/XDG directories, generated project files, and a private tmux socket. It launches real supervisors and an MCP stdio client named `docs-agent`, then stops demo processes and removes the temporary state. It never reads or clears personal runui data and needs no agent account or network connection.
 
@@ -46,6 +49,7 @@ For focused real-TUI checks, run `python3 -B scripts/verify-palette.py` and `pyt
 | Output | Shows |
 | --- | --- |
 | `assets/tour.gif` / `.mp4` | Discover, favorite, run, reopen the same process, filter nested commands, stop, and revisit Log. |
+| `assets/cargo-tour.gif` / `.mp4`, `cargo.png` | Cargo defaults vs all members, manifest/runtime cwd, required features, and real supervised Rust output. |
 | `assets/composer-tour.gif` / `.mp4`, `composer.png` | Canonical alias search, explicit lifecycle hooks, separate tool availability and bounded native checks without unread results. |
 | `assets/log-tour.gif` / `.mp4` | Local and remote failures, a successful result, individual acknowledgement, a running count left intact, and retained history. |
 | `assets/agents-tour.gif` / `.mp4` | Real MCP discovery, start, list, read, stop, disconnect/reconnect, and review of agent results. |
