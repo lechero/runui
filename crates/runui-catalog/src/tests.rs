@@ -55,6 +55,85 @@ fn identity_is_stable_across_refresh_and_definition_edits() {
 }
 
 #[test]
+fn cargo_preserves_invocation_cwd_qualifies_manifests_and_keeps_native_identity() {
+    let (_temp, mut context) = fixture();
+    write(&context, "Cargo.toml", "[workspace]\nmembers=['crates/*']\n");
+    for name in ["one", "two"] {
+        write(&context, &format!("crates/{name}/Cargo.toml"), &format!("[package]\nname='{name}'\nedition='2024'\n"));
+        write(&context, &format!("crates/{name}/src/main.rs"), "fn main() {}\n");
+    }
+    context.invocation_dir = canonical(&Path::new(&context.project).join("crates/one/src").to_string_lossy());
+    let mut discovery = runui_project::discover(&context.project, &context.checkout);
+    let before = Snapshot::build(&context, &discovery, &[], &[], &usage::Data::default());
+    let mut query = Query::parse("source:cargo check").unwrap();
+    query.commands();
+    let hits = before.search(&query);
+    assert_eq!(hits[0].entry.cargo.as_ref().unwrap().package.as_deref(), Some("one"));
+    assert_eq!(hits[0].entry.directory, context.invocation_dir);
+    assert_eq!(hits[0].entry.relative_source_directory(), "crates/one");
+    let mut filtered = Query::parse("source:cargo dir:crates/two").unwrap();
+    filtered.commands();
+    assert!(
+        before.search(&filtered).iter().all(|hit| hit.entry.cargo.as_ref().unwrap().package.as_deref() == Some("two"))
+    );
+    let run = before.entries().iter().find(|entry| entry.name == "run --bin one (one)").unwrap();
+    let prepared = before
+        .prepare(&run.id, None, &Inputs { args: vec!["--literal".into(), "space value".into()], ..Inputs::default() })
+        .unwrap();
+    assert_eq!(prepared.directory, context.invocation_dir);
+    assert!(prepared.command.ends_with("-- --literal 'space value'"));
+    for file in &mut discovery.files {
+        for command in &mut file.commands {
+            command.name = format!("A clearer label for {}", command.name);
+        }
+    }
+    let renamed = Snapshot::build(&context, &discovery, &[], &[], &usage::Data::default());
+    assert!(renamed.get(&run.id).is_some());
+    assert_eq!(renamed.get(&run.id).unwrap().fingerprint, run.fingerprint);
+    write(&context, "crates/one/src/.cargo/config.toml", "[build]\ntarget-dir='elsewhere'\n");
+    let updated = snapshot(&context);
+    assert_ne!(updated.get(&run.id).unwrap().fingerprint, run.fingerprint);
+    assert!(matches!(
+        updated.prepare(&run.id, Some(&run.fingerprint), &Inputs::default()),
+        Err(PrepareError::Stale { .. })
+    ));
+    context.invocation_dir = canonical("/private/tmp/outside-checkout");
+    assert!(
+        snapshot(&context)
+            .entries()
+            .iter()
+            .filter(|entry| entry.source == "cargo")
+            .all(|entry| entry.directory == context.project)
+    );
+}
+
+#[test]
+fn cargo_workspace_defaults_sort_before_all_members_without_changing_explicit_selection() {
+    let (_temp, context) = fixture();
+    write(&context, "Cargo.toml", "[workspace]\nmembers=['crate']\n");
+    write(&context, "crate/Cargo.toml", "[package]\nname='crate'\nedition='2024'\n");
+    write(&context, "crate/src/lib.rs", "pub fn check() {}\n");
+    let snapshot = snapshot(&context);
+    let mut query = Query::parse("source:cargo check").unwrap();
+    query.commands();
+    assert_eq!(
+        snapshot.search(&query)[0].entry.cargo.as_ref().unwrap().scope,
+        runui_project::CargoScope::DefaultMembers
+    );
+    query = Query::parse("source:cargo all").unwrap();
+    query.commands();
+    assert_eq!(snapshot.search(&query)[0].entry.cargo.as_ref().unwrap().scope, runui_project::CargoScope::AllMembers);
+    let test = snapshot.entries().iter().find(|entry| entry.name == "test (default members)").unwrap();
+    assert!(
+        snapshot
+            .prepare(&test.id, None, &Inputs { args: vec!["--nocapture".into()], ..Inputs::default() })
+            .unwrap()
+            .command
+            .ends_with("-- --nocapture")
+    );
+}
+
+#[test]
 fn worktrees_and_same_names_in_different_folders_keep_distinct_identities() {
     let (_temp, context) = fixture();
     write(&context, "package.json", r#"{"scripts":{"test":"true"}}"#);

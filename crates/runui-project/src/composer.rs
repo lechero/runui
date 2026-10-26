@@ -205,6 +205,7 @@ fn read(path: &str, dir: &str, stop: &str, phar: Option<&str>, scan: &mut Scan) 
             aliases: native_aliases,
             hook: EVENTS.contains(&name.as_str()),
             requirements: requirements.clone(),
+            cargo: None,
         });
     }
     for key in aliases.keys() {

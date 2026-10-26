@@ -125,6 +125,7 @@ pub(crate) fn read_tracked(path: &str, scan: &mut crate::discovery::Scan) -> (Ve
                 aliases: Vec::new(),
                 hook: false,
                 requirements: Vec::new(),
+                cargo: None,
             });
         }
     }

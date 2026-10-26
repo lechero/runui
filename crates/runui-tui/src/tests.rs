@@ -970,6 +970,30 @@ fn palette_searches_sources_without_mutating_the_panel_filter_or_selection() {
 }
 
 #[test]
+fn cargo_project_rows_and_palette_use_invocation_cwd_and_qualify_duplicate_package_labels() {
+    let world = new_world();
+    for folder in ["one", "two"] {
+        let root = std::path::Path::new(&world.dir).join(folder);
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(root.join("Cargo.toml"), "[package]\nname='tool'\nedition='2024'\n").unwrap();
+        fs::write(root.join("src/main.rs"), "fn main() {}\n").unwrap();
+    }
+    let mut h = open(&world);
+    let cargo = h.m.a.panels[PANEL_PROJECT].views.iter().find(|view| view.name == "Cargo").unwrap();
+    let rows: Vec<_> = cargo.all.iter().filter(|item| item.name == "run --bin tool (tool)").collect();
+    assert_eq!(rows.len(), 2);
+    assert!(rows.iter().all(|item| item.dir == runui_catalog::canonical(&world.dir) && item.rel.is_empty()));
+    h.keys(&["ctrl+p"]);
+    h.typed("source:cargo run --bin tool");
+    let screen = h.screen();
+    assert!(screen.contains("one ›"));
+    assert!(screen.contains("two ›"));
+    assert!(screen.contains("manifest folder:"));
+    assert!(screen.contains("cwd:"));
+    assert!(world.runs.list().unwrap().is_empty());
+}
+
+#[test]
 fn composer_hooks_require_a_query_and_aliases_preview_native_requirements_without_running() {
     let world = new_world();
     fs::write(filepath::join(&[&world.dir,"composer.json"]),r#"{"scripts":{"check":"@php never.php","post-install-cmd":"@php never.php"},"scripts-aliases":{"check":["verify"]}}"#).unwrap();

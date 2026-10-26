@@ -59,6 +59,19 @@ impl Context {
             environment: Environment::current(),
         }
     }
+
+    /// Cargo selects a manifest explicitly and retains the user's invocation
+    /// cwd. Registered commands opened from elsewhere use their own checkout.
+    pub fn execution_directory(&self, source: Source, definition: &str) -> String {
+        if source != Source::Cargo {
+            return canonical(definition);
+        }
+        if Path::new(&self.invocation_dir).starts_with(&self.checkout) {
+            canonical(&self.invocation_dir)
+        } else {
+            self.project.clone()
+        }
+    }
 }
 
 /// Environment is supplied by a caller. Checking it does not activate tools.
@@ -209,6 +222,8 @@ pub struct Entry {
     pub requirements: Vec<Requirement>,
     #[serde(default)]
     pub aliases: Vec<String>,
+    #[serde(default)]
+    pub cargo: Option<runui_project::CargoDetails>,
     pub favorite: bool,
     pub favorite_names: Vec<String>,
     pub launches: u64,
@@ -218,6 +233,17 @@ pub struct Entry {
     pub agent: Option<String>,
     pub output_available: bool,
     pub definition_id: Option<String>,
+}
+
+impl Entry {
+    /// Cargo retains invocation cwd while its list location identifies the
+    /// selected manifest. Other providers' source and execution folders agree.
+    pub fn relative_source_directory(&self) -> String {
+        self.cargo
+            .as_ref()
+            .map(|cargo| relative(&self.checkout, &cargo.manifest_directory))
+            .unwrap_or_else(|| self.relative_directory.clone())
+    }
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -340,6 +366,7 @@ impl Snapshot {
         // Resolve each tool/cwd once in this snapshot; the next build is fresh.
         let mut tools = HashMap::<(String, String), Requirement>::new();
         let mut tool_stamps = HashMap::<String, String>::new();
+        let mut cargo_environments = HashMap::<String, String>::new();
         for file in &discovery.files {
             if let Some(error) = &file.err {
                 snapshot.diagnostics.push(Diagnostic {
@@ -350,16 +377,27 @@ impl Snapshot {
                 });
             }
             for command in &file.commands {
-                let directory = canonical(&file.dir);
+                let directory = context.execution_directory(command.source, &file.dir);
                 let relative_entry = relative(&context.checkout, &canonical(&file.path));
                 let relative_directory = relative(&context.checkout, &directory);
+                let native_name = command
+                    .cargo
+                    .as_ref()
+                    .map(|cargo| {
+                        cargo
+                            .target
+                            .as_ref()
+                            .map(|target| target.name.as_str())
+                            .unwrap_or_else(|| command.argv.get(1).map(String::as_str).unwrap_or(&command.name))
+                    })
+                    .unwrap_or(&command.name);
                 let id = format!(
                     "cmd-v1-{}",
                     digest(&[
                         &context.checkout,
                         command.source.as_str(),
                         &relative_entry,
-                        &command.name,
+                        native_name,
                         &command.variant,
                         &relative_directory
                     ])
@@ -409,7 +447,7 @@ impl Snapshot {
                     Availability::OnPath
                 };
                 let mut dependencies = file.fingerprint.clone();
-                if command.source == Source::Composer {
+                if matches!(command.source, Source::Composer | Source::Cargo) {
                     // Native executable replacement changes preparation, even
                     // when the manifest and PATH spelling have not changed.
                     for tool in &requirements {
@@ -434,6 +472,11 @@ impl Snapshot {
                         }
                     }
                 }
+                if command.source == Source::Cargo {
+                    dependencies.push_str(
+                        cargo_environments.entry(directory.clone()).or_insert_with(|| cargo_environment(&directory)),
+                    );
+                }
                 let fingerprint = fingerprint(&directory, &recipe, &dependencies);
                 let mut entry = Entry {
                     registry_id: None,
@@ -449,7 +492,10 @@ impl Snapshot {
                     project: project_name.clone(),
                     project_directory: context.project.clone(),
                     checkout: context.checkout.clone(),
-                    proximity: distance(&context.invocation_dir, &directory),
+                    proximity: distance(
+                        &context.invocation_dir,
+                        command.cargo.as_ref().map(|cargo| cargo.manifest_directory.as_str()).unwrap_or(&directory),
+                    ),
                     directory,
                     relative_directory,
                     entry_file: Some(canonical(&file.path)),
@@ -461,6 +507,7 @@ impl Snapshot {
                     availability,
                     requirements,
                     aliases: command.aliases.clone(),
+                    cargo: command.cargo.clone(),
                     favorite: false,
                     favorite_names: Vec::new(),
                     launches: 0,
@@ -532,6 +579,7 @@ impl Snapshot {
                 availability: Availability::Shell,
                 requirements: Vec::new(),
                 aliases: Vec::new(),
+                cargo: None,
                 favorite: true,
                 favorite_names: vec![favorite.label().into()],
                 launches: 0,
@@ -587,6 +635,7 @@ impl Snapshot {
                 availability: Availability::Shell,
                 requirements: Vec::new(),
                 aliases: Vec::new(),
+                cargo: None,
                 favorite: false,
                 favorite_names: Vec::new(),
                 launches: 0,
@@ -651,6 +700,7 @@ impl Snapshot {
                 availability: Availability::Shell,
                 requirements: Vec::new(),
                 aliases: Vec::new(),
+                cargo: None,
                 favorite: false,
                 favorite_names: Vec::new(),
                 launches: 0,
@@ -866,6 +916,70 @@ pub fn relative_within(root: &str, path: &str) -> Option<String> {
 fn relative(root: &str, path: &str) -> String {
     runui_core::golang::filepath::rel(root, path).unwrap_or_else(|| path.into())
 }
+/// Cargo reads config from invocation ancestors, not manifest ancestors.
+/// Keep these metadata/env selectors private; only their digest is exposed.
+fn cargo_environment(directory: &str) -> String {
+    use std::os::unix::fs::MetadataExt;
+    let mut paths = Vec::new();
+    for dir in Path::new(directory).ancestors().take(64) {
+        for file in [
+            ".cargo/config",
+            ".cargo/config.toml",
+            "rust-toolchain",
+            "rust-toolchain.toml",
+            "mise.toml",
+            ".mise.toml",
+            ".tool-versions",
+        ] {
+            paths.push(dir.join(file));
+        }
+    }
+    let home = std::env::var_os("CARGO_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".cargo")));
+    if let Some(home) = home {
+        for file in ["config", "config.toml"] {
+            paths.push(Path::new(directory).join(&home).join(file));
+        }
+    }
+    let rustup = std::env::var_os("RUSTUP_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".rustup")));
+    if let Some(home) = rustup {
+        paths.push(Path::new(directory).join(home).join("settings.toml"));
+    }
+    let mut parts = String::new();
+    for path in paths {
+        parts += &format!(
+            "{}:{:?}",
+            path.display(),
+            fs::metadata(&path).ok().map(|m| (
+                m.dev(),
+                m.ino(),
+                m.len(),
+                m.mtime(),
+                m.mtime_nsec(),
+                m.ctime(),
+                m.ctime_nsec()
+            ))
+        );
+    }
+    for name in [
+        "CARGO_HOME",
+        "RUSTUP_HOME",
+        "RUSTUP_TOOLCHAIN",
+        "RUSTC",
+        "RUSTC_WRAPPER",
+        "RUSTC_WORKSPACE_WRAPPER",
+        "RUSTFLAGS",
+        "CARGO_ENCODED_RUSTFLAGS",
+        "CARGO_BUILD_TARGET",
+    ] {
+        parts += &format!("{name}:{:?}", std::env::var_os(name));
+    }
+    digest(&[&parts])
+}
+
 fn fingerprint(directory: &str, recipe: &Recipe, dependencies: &str) -> String {
     let recipe = serde_json::to_string(recipe).expect("a recipe contains only serializable strings and enums");
     format!("def-v1-{}", digest(&[directory, &recipe, dependencies]))

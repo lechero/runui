@@ -12,7 +12,7 @@ Runui brings your project commands, persistent processes, finished history, and 
 
 | Find | Run | Review | Share with an agent |
 | --- | --- | --- | --- |
-| Six command sources, nested folders, filters, and per-project favorites. | Live output under a supervisor that outlives the app and terminal. | A global Log of successes, failures, stopped runs, and repeated attempts. | Six local MCP tools using the same processes, metadata, and output. |
+| Seven command sources, nested folders, filters, and per-project favorites. | Live output under a supervisor that outlives the app and terminal. | A global Log of successes, failures, stopped runs, and repeated attempts. | Six local MCP tools using the same processes, metadata, and output. |
 
 ## Install & open
 
@@ -32,7 +32,7 @@ cd runui
 cargo install --path crates/runui --root ~/.local --locked
 ```
 
-Or run `task install` from the clone. Put `~/.local/bin` on your `PATH`. Discovered commands use the project's own tools: Task, a package manager, Make, Docker Compose, Maven, or PHP/Composer.
+Or run `task install` from the clone. Put `~/.local/bin` on your `PATH`. Discovered commands use the project's own tools: Task, a package manager, Make, Docker Compose, Maven, PHP/Composer, or Cargo/Rust.
 
 ```sh
 runui                       # open the current project
@@ -48,7 +48,7 @@ Opening inside `src/` or another subfolder selects the nearest parent with a sup
 | Key | Panel | What's there |
 | --- | --- | --- |
 | `1` | **Favorites** | Starred project commands and shell commands of your own, saved per project. |
-| `2` | **Project** | Taskfile, package.json, Makefile, Compose, Maven, and Composer tabs. Filter a tab with `/`. |
+| `2` | **Project** | Taskfile, package.json, Makefile, Compose, Maven, Composer, and Cargo tabs. Filter a tab with `/`. |
 | `3` | **Runs** | **Here**, **Everywhere**, and an **Agents** tab once MCP runs exist. Read, stop, or restart the same processes. |
 | `4` | **Log** | **Unread** results needing a look and **All** retained finished attempts, across every folder. |
 
@@ -64,6 +64,7 @@ Use `tab` / `shift+tab` between panels and `[` / `]` between a panel's tabs. Pre
 | Compose files | `up`, `up --build`, `down`, `ps`, `logs -f`, and `up` for individual services. |
 | `pom.xml` | Install, verify, test, and non-default profile builds; uses `mvnw` when present. |
 | `composer.json` | Native scripts, descriptions, and aliases; arrays, callbacks and `@...` helpers stay with Composer. Lifecycle hooks require `kind:hook` in the palette. |
+| `Cargo.toml` | Generated package/default-member/all-member actions, binaries, examples and test/bench targets. Required features and invocation cwd stay explicit. |
 
 ![Root scripts and apps/web scripts in the Project panel](docs/assets/scripts.png)
 
@@ -84,11 +85,15 @@ runui run --scope registered --project PROJECT_ID COMMAND_ID --json
 
 Composer scripts keep their native behavior and cwd. Aliases search the canonical script; exact lifecycle events stay out of ordinary results (use `kind:hook source:composer`). PHP and Composer availability appear separately. `alt+i` explicitly checks native versions, or use `runui inspect --native --json ID`; opening/searching executes nothing. Checks support Composer 2.2+ and have a five-second/64-KiB limit per tool. Project shell wrappers remain unverified until an offline inspection contract is available. [Composer settings and timeout options](docs/command-catalog.md#composer).
 
-Press `m` in a panel to star a command, or `a` to save your own named shell command. Runui notices edits to files it reads; `r` rescans, including newly added nested files. Cargo, shell recall, and input presets remain in the [integration plan](docs/command-discovery-plan.md).
+![Real Cargo discovery, required features, and a supervised Rust binary](docs/assets/cargo-tour.gif)
 
-Declared pnpm/npm/Yarn workspace packages can be deeper than three levels. Workspace scope searches the enclosing declaration while each command keeps its own cwd. Exclusions control package membership; `.runuiignore` uses Git-ignore syntax to exclude discovery paths, including declared members. Repository `.gitignore` files apply to incidental folders; a declared member overrides them with a notice. Nested repositories, symlinks, dependencies and generated folders stay traversal boundaries.
+Cargo discovery reads manifests and target layouts without running Cargo. Package, default-member, and explicit all-member actions are distinct; selecting a named target enables only its listed required features. The list identifies its manifest folder, while the preview shows the invocation cwd retained by `cargo run`. Targets and deep/nested workspace members are shared across TUI, CLI and MCP. Native enrichment and alias discovery are the next Cargo increment. [Cargo reference](docs/command-catalog.md#cargo).
 
-Background checks also cover included Taskfiles, new nested files, workspace declarations/member directories, ignores, parent package-manager settings/locks, and Maven wrappers. Shared Taskfiles contribute every include namespace. Incomplete discovery reports skipped includes, unsupported patterns, unreadable folders, and global scan limits (2,000 folders, 150 source/dependency files). Incidental scanning remains three levels; declared membership is bounded separately by that same global budget.
+Press `m` in a panel to star a command, or `a` to save your own named shell command. Runui notices edits to files it reads; `r` rescans, including newly added nested files. Native Cargo enrichment/aliases, shell recall, and input presets remain in the [integration plan](docs/command-discovery-plan.md).
+
+Declared pnpm/npm/Yarn and Cargo workspace packages can be deeper than three levels. Workspace scope searches the enclosing declaration while each command keeps its own cwd. Exclusions control package membership; `.runuiignore` uses Git-ignore syntax to exclude discovery paths, including declared members. Repository `.gitignore` files apply to incidental folders; a declared member overrides them with a notice. Nested repositories, symlinks, dependencies and generated folders stay traversal boundaries.
+
+Background checks also cover included Taskfiles, new nested files, workspace declarations/member directories, ignores, parent package-manager settings/locks, and Maven wrappers. Shared Taskfiles contribute every include namespace. Incomplete discovery reports skipped includes, unsupported patterns, unreadable folders, and global scan limits (2,000 folders, 150 source/dependency files, 2 MiB per file and 16 MiB total source bytes). Incidental scanning remains three levels; declared membership is bounded separately by that same global budget.
 
 ## Run now, return later
 
@@ -215,7 +220,7 @@ task build          # build bin/runui
 task run            # build and open the current folder
 task test           # workspace tests and clippy
 task lint           # clippy and rustfmt checks
-task docs:capture   # rebuild screenshots, 4 GIFs, and 4 playable videos
+task docs:capture   # rebuild screenshots, 5 GIFs, and 5 playable videos
 ```
 
 Captures need Python 3.10+, Pillow, tmux, Task, and ffmpeg. They exercise the real Rust app and all six MCP tools in temporary projects and private tmux sessions. Your favorites and run history are untouched. [Media maintenance](docs/README.md) covers regeneration and local preview.
