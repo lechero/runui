@@ -656,11 +656,26 @@ def capture_environment() -> None:
         tour.save('environment-tour')
 
 
+def capture_shell_recall() -> None:
+    with tempfile.TemporaryDirectory(prefix='runui-recall-media-',dir='/tmp') as captures:
+        result=subprocess.run(['python3','-B',str(ROOT/'scripts/verify-recall.py')],
+                              env=dict(os.environ,RUNUI_BIN=str(BIN),RUNUI_RECALL_CAPTURES=captures),
+                              text=True,capture_output=True,timeout=180)
+        if result.returncode:raise RuntimeError(result.stdout+'\n'+result.stderr)
+        print(result.stdout,end='',flush=True)
+        tour=Tour()
+        for label in ('shell-recall','shell-replay-cwd','shell-replayed'):
+            with Image.open(Path(captures)/(label+'.png')) as frame:tour.frames.append(frame.convert('RGB'))
+            tour.durations.append(5000)
+        tour.frames[0].save(OUT/'shell-recall.png',optimize=True)
+        tour.save('shell-recall-tour')
+
+
 def main() -> None:
     global BIN
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--binary", type=Path, default=BIN, help="Rust binary to capture (default: bin/runui)")
-    parser.add_argument("--only", choices=["composer","cargo","cargo-aliases","environment"], help="Refresh one focused tour")
+    parser.add_argument("--only", choices=["composer","cargo","cargo-aliases","environment","shell-recall"], help="Refresh one focused tour")
     args = parser.parse_args()
     BIN = args.binary.expanduser().resolve()
     if not BIN.is_file():
@@ -681,6 +696,9 @@ def main() -> None:
     if args.only == "environment":
         capture_environment()
         return
+    if args.only == "shell-recall":
+        capture_shell_recall()
+        return
     capture_tour()
     capture_log()
     capture_agents()
@@ -688,7 +706,8 @@ def main() -> None:
     capture_cargo()
     capture_cargo_aliases()
     capture_environment()
-    print("Captured all screenshots, 7 GIFs and 7 videos using isolated real runs.", flush=True)
+    capture_shell_recall()
+    print("Captured all screenshots, 8 GIFs and 8 videos using isolated real runs.", flush=True)
 
 
 if __name__ == "__main__":

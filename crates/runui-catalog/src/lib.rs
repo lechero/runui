@@ -15,6 +15,7 @@ use sha2::{Digest, Sha256};
 
 pub mod index;
 pub mod inspection;
+pub mod recall;
 pub mod registry;
 mod search;
 mod state;
@@ -109,7 +110,7 @@ impl Environment {
         if self.resolve(program, dir).is_some() { Availability::OnPath } else { Availability::Missing }
     }
 
-    pub(crate) fn resolve(&self, program: &str, dir: &str) -> Option<String> {
+    pub fn resolve(&self, program: &str, dir: &str) -> Option<String> {
         if self.project_wrapper {
             return None;
         }

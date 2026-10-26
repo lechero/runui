@@ -26,9 +26,11 @@ use runui_tea::tea::{
 };
 
 mod palette;
+mod recall;
 mod rows;
 mod styles;
 mod terminal;
+pub use recall::{HistorySettings, ShellPicker};
 mod view;
 
 use rows::{Item, Kind, View};
@@ -103,6 +105,7 @@ pub struct Config {
     pub home: String,
     /// Captured process selectors; tests can supply an isolated environment.
     pub catalog_environment: runui_catalog::Environment,
+    pub shell_history: HistorySettings,
     pub favorites: Favorites,
     pub registry: runui_catalog::registry::Store,
     pub index: runui_catalog::index::Index,
@@ -122,6 +125,7 @@ impl Config {
             repo: repo.to_string(),
             home: home.to_string(),
             catalog_environment: runui_catalog::Environment::current().with_shell(&runs.execution_shell()),
+            shell_history: HistorySettings::current(home),
             registry: runui_catalog::registry::Store::beside_favorites(favorites.file()),
             index: runui_catalog::index::Index::default(),
             favorites,
@@ -379,6 +383,11 @@ impl App {
     }
 
     fn update(&mut self, msg: Msg) -> Cmd {
+        if let Some(action) =
+            self.palette.as_mut().and_then(|palette| palette.shell.as_mut()).and_then(|shell| shell.receive(&msg))
+        {
+            return self.shell_history_action(action);
+        }
         if let Some(s) = msg.downcast_ref::<WindowSizeMsg>() {
             (self.w, self.h) = (s.width, s.height);
             self.layout();
@@ -387,6 +396,7 @@ impl App {
         if msg.is::<TickMsg>() {
             self.ticks += 1;
             let mut cmds = vec![self.tick()];
+            cmds.push(self.palette.as_mut().and_then(|palette| palette.refresh_shell()));
             if self.ticks % 2 == 0 {
                 cmds.push(self.list_runs());
             }

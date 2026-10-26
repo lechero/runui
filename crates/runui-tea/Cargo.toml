@@ -11,5 +11,10 @@ publish = false
 crossterm.workspace = true
 unicode-segmentation.workspace = true
 
+[target.'cfg(target_os = "macos")'.dependencies]
+# The poll reader supports /dev/tty in shell widgets; kqueue cannot register
+# every controlling-terminal descriptor on macOS.
+crossterm = { workspace = true, features = ["use-dev-tty"] }
+
 [lints]
 workspace = true

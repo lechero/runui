@@ -20,6 +20,7 @@ use super::{BatchMsg, Cmd, Model, Msg, QuitMsg, SequenceMsg, SetClipboardMsg, Wi
 
 /// Whether a program has the terminal: what the panic hook gives back.
 static ACTIVE: AtomicBool = AtomicBool::new(false);
+static STDERR_OUTPUT: AtomicBool = AtomicBool::new(false);
 static HOOK: Once = Once::new();
 
 /// What a command that panicked sends: the program ends with an error.
@@ -29,6 +30,7 @@ struct PanicMsg;
 /// program ends with an error, as Bubble Tea's does when the context it
 /// was given (tea.WithContext) is canceled.
 struct KilledMsg;
+struct InputFailed(io::Error);
 
 /// restore_terminal gives the terminal back after a panic: every mode the
 /// program may have turned on turned off, the cursor shown, the alternate
@@ -37,7 +39,8 @@ fn restore_terminal() {
     if !ACTIVE.swap(false, Ordering::SeqCst) {
         return;
     }
-    let mut out = io::stdout();
+    let mut out: Box<dyn Write> =
+        if STDERR_OUTPUT.load(Ordering::SeqCst) { Box::new(io::stderr()) } else { Box::new(io::stdout()) };
     let _ = out.write_all(b"\x1b[<1u\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?2004l\x1b[?1004l\x1b[?1049l\x1b[?25h");
     let _ = out.flush();
     let _ = crossterm::terminal::disable_raw_mode();
@@ -69,12 +72,13 @@ pub struct Program<M: Model> {
     model: M,
     profile: Option<Profile>,
     cancel: Option<Arc<AtomicBool>>,
+    stderr: bool,
 }
 
 impl<M: Model> Program<M> {
     /// new is a program for `model`.
     pub fn new(model: M) -> Program<M> {
-        Program { model, profile: None, cancel: None }
+        Program { model, profile: None, cancel: None, stderr: false }
     }
 
     /// with_cancel ends the program once cancel is set, with the error
@@ -92,10 +96,18 @@ impl<M: Model> Program<M> {
         self
     }
 
+    /// Keep stdout reserved for a structured picker result. Input still comes
+    /// from the controlling terminal, including inside shell substitutions.
+    pub fn with_stderr(mut self) -> Self {
+        self.stderr = true;
+        self
+    }
+
     /// run runs the model until it quits, and gives it back.
     pub fn run(mut self) -> io::Result<M> {
-        let stdout = io::stdout();
-        let profile = self.profile.unwrap_or_else(|| detect(stdout.is_terminal(), &|k| std::env::var(k).ok()));
+        let terminal = if self.stderr { io::stderr().is_terminal() } else { io::stdout().is_terminal() };
+        let output: Box<dyn Write> = if self.stderr { Box::new(io::stderr()) } else { Box::new(io::stdout()) };
+        let profile = self.profile.unwrap_or_else(|| detect(terminal, &|k| std::env::var(k).ok()));
         // keys come from the terminal itself when stdin isn't one, as
         // Bubble Tea reads them; without a terminal it says so in its words
         if !io::stdin().is_terminal()
@@ -111,12 +123,13 @@ impl<M: Model> Program<M> {
         }
         install_panic_hook();
         crossterm::terminal::enable_raw_mode()?;
+        STDERR_OUTPUT.store(self.stderr, Ordering::SeqCst);
         ACTIVE.store(true, Ordering::SeqCst);
         let _guard = Guard;
 
         let (w, h) = crossterm::terminal::size().unwrap_or((80, 24));
         let (w, h) = (w as i32, h as i32);
-        let mut renderer = Renderer::new(stdout, profile, w, h);
+        let mut renderer = Renderer::new(output, profile, w, h);
         renderer.start()?;
 
         let (tx, rx) = mpsc::channel::<Msg>();
@@ -145,7 +158,7 @@ impl<M: Model> Program<M> {
         result.map(|_| self.model)
     }
 
-    fn event_loop(&mut self, rx: &Receiver<Msg>, tx: &Sender<Msg>, r: &mut Renderer<io::Stdout>) -> io::Result<()> {
+    fn event_loop(&mut self, rx: &Receiver<Msg>, tx: &Sender<Msg>, r: &mut Renderer<Box<dyn Write>>) -> io::Result<()> {
         loop {
             let Ok(m) = rx.recv() else { return Ok(()) };
             if self.handle(m, tx, r)? {
@@ -167,7 +180,7 @@ impl<M: Model> Program<M> {
     }
 
     /// handle takes one message: true when the program should end.
-    fn handle(&mut self, m: Msg, tx: &Sender<Msg>, r: &mut Renderer<io::Stdout>) -> io::Result<bool> {
+    fn handle(&mut self, m: Msg, tx: &Sender<Msg>, r: &mut Renderer<Box<dyn Write>>) -> io::Result<bool> {
         if m.is::<QuitMsg>() {
             return Ok(true);
         }
@@ -176,6 +189,9 @@ impl<M: Model> Program<M> {
         }
         if m.is::<KilledMsg>() {
             return Err(io::Error::other("program was killed: context canceled"));
+        }
+        if let Some(failed) = m.downcast_ref::<InputFailed>() {
+            return Err(io::Error::new(failed.0.kind(), format!("terminal input failed: {}", failed.0)));
         }
         let m = match m.downcast::<BatchMsg>() {
             Ok(b) => {
@@ -239,10 +255,16 @@ fn read_input(tx: Sender<Msg>, stop: Arc<AtomicBool>, cancel: Option<Arc<AtomicB
                         return;
                     }
                 }
-                Err(_) => return,
+                Err(error) => {
+                    let _ = tx.send(msg(InputFailed(error)));
+                    return;
+                }
             },
             Ok(false) => {}
-            Err(_) => return,
+            Err(error) => {
+                let _ = tx.send(msg(InputFailed(error)));
+                return;
+            }
         }
     }
 }

@@ -40,6 +40,9 @@ _Avoid_: treating result review or imported shell records as a count of runui la
 A command recorded by a particular shell or history tool. Its working directory, time, and outcome are known only when the source actually recorded them.
 _Avoid_: assuming a shell history entry is a project command or a supervised run.
 
+**Promotion**:
+A deliberate choice to save a private shell history entry as a shared favorite. Reading, searching and copying private history do not promote it.
+
 **Log**:
 The place to review finished run results and revisit retained runs and their output. It has an unread view and an all-results view.
 _Avoid_: using Log to mean imported shell history or unlimited output retention.

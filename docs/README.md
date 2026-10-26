@@ -16,6 +16,7 @@ The pages are static HTML and CSS with no JavaScript, external fonts, or build s
 - [Four panels](index.html#overview): Favorites, Project, Runs, and Log.
 - [Everyday use](index.html#workflow): discover, favorite, run, leave, return, and stop.
 - [Command catalog](command-catalog.md): Project/Workspace/Registered search, recent recall, project picker, diagnostics, Composer/Cargo, CLI IDs and preparation.
+- [Private shell recall](shell-recall.md): opt-in fish/Zsh/Bash sources, editable insertion, explicit replay and deliberate favorite promotion.
 - [Log](index.html#log): review successful and failed results, clear notices, and revisit history.
 - [Tmux](index.html#status-bars): global counts, hidden zeros, and the shared review state.
 - [MCP](index.html#mcp): configuration, all six tools, agent identity, persistence, and tool-call examples.
@@ -42,9 +43,12 @@ python3 -B scripts/capture-docs.py --binary bin/runui --only composer
 python3 -B scripts/capture-docs.py --binary bin/runui --only cargo
 python3 -B scripts/capture-docs.py --binary bin/runui --only cargo-aliases
 python3 -B scripts/capture-docs.py --binary bin/runui --only environment
+python3 -B scripts/capture-docs.py --binary bin/runui --only shell-recall
 ```
 
 The Cargo tours additionally use an already installed Rust toolchain. The environment tour uses mise 2026.10.19 or newer, with temporary tool registrations pointing to those installed Rust binaries. It demonstrates safe inspection and missing-tool fallback without provisioning tools or downloading project dependencies.
+
+The shell recall tour requires installed fish, Zsh and Bash 4+. It checks their real native history formats, literal multiline/Unicode insertion and cancellation in private interactive shells before recording opt-in recall, cwd confirmation and supervised replay. Its history files are disposable.
 
 The default binary is `bin/runui`, the output of `task build`. The script works with temporary HOME/XDG directories, generated project files, and a private tmux socket. It launches real supervisors and an MCP stdio client named `docs-agent`, then stops demo processes and removes the temporary state. It never reads or clears personal runui data and needs no agent account or network connection.
 
@@ -56,6 +60,7 @@ For focused real-TUI checks, run `python3 -B scripts/verify-palette.py` and `pyt
 | `assets/cargo-tour.gif` / `.mp4`, `cargo.png` | Cargo defaults vs all members, manifest/runtime cwd, required features, explicit offline metadata, and real supervised Rust output. |
 | `assets/cargo-aliases-tour.gif` / `.mp4`, `cargo-aliases.png` | Effective project aliases, opt-in global aliases, configuration origins and a real supervised alias run. |
 | `assets/environment-tour.gif` / `.mp4`, `environment.png` | Explicit mise installed-tool inspection, its full-environment limitation, and missing-version fallback without installation. |
+| `assets/shell-recall-tour.gif` / `.mp4`, `shell-recall.png` | Session opt-in, native fish text with unknown cwd, explicit directory confirmation, and retained supervised output. |
 | `assets/composer-tour.gif` / `.mp4`, `composer.png` | Canonical alias search, explicit lifecycle hooks, separate tool availability and bounded native checks without unread results. |
 | `assets/log-tour.gif` / `.mp4` | Local and remote failures, a successful result, individual acknowledgement, a running count left intact, and retained history. |
 | `assets/agents-tour.gif` / `.mp4` | Real MCP discovery, start, list, read, stop, disconnect/reconnect, and review of agent results. |
@@ -77,4 +82,4 @@ This regenerates browser/touch/app icons and the repository social card. The [br
 
 ## Planned discovery improvements
 
-The [research](command-discovery-research.md) and [integration plan](command-discovery-plan.md) are roadmap documents. The [implementation audit](implementation-status.md) distinguishes implemented catalog/workspace/registry/Composer/Cargo and limited installed-tool inspection from the remaining shell recall, inputs and workflow contracts. The user guide documents current behavior.
+The [research](command-discovery-research.md) and [integration plan](command-discovery-plan.md) are roadmap documents. The [implementation audit](implementation-status.md) distinguishes implemented catalog/workspace/registry/Composer/Cargo, private shell recall and limited installed-tool inspection from the remaining inputs and workflow contracts. The user guide documents current behavior.

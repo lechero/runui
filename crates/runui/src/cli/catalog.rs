@@ -9,6 +9,7 @@ use runui_core::golang::filepath;
 use serde_json::json;
 
 use super::{Failure, Workspace, mcp};
+mod recall;
 
 #[derive(Default)]
 struct Options {
@@ -27,6 +28,10 @@ struct Options {
     timeout_seconds: Option<u32>,
     native: bool,
     cargo_global_aliases: bool,
+    shell: Option<runui_catalog::recall::Dialect>,
+    history_file: Option<String>,
+    pick: bool,
+    print0: bool,
 }
 
 fn parse(command: &str, args: &[String]) -> Result<Options, Failure> {
@@ -54,6 +59,14 @@ fn parse(command: &str, args: &[String]) -> Result<Options, Failure> {
             result.json = true;
             continue;
         }
+        if arg == "--pick" {
+            result.pick = true;
+            continue;
+        }
+        if arg == "--print0" {
+            result.print0 = true;
+            continue;
+        }
         if arg == "--help" || arg == "-h" {
             return Err(Failure::Help);
         }
@@ -75,6 +88,8 @@ fn parse(command: &str, args: &[String]) -> Result<Options, Failure> {
                 | "--scope"
                 | "--project"
                 | "--timeout"
+                | "--shell"
+                | "--history-file"
         ) {
             return Err(Failure::Usage(format!("unknown catalog option {name}")));
         }
@@ -82,6 +97,7 @@ fn parse(command: &str, args: &[String]) -> Result<Options, Failure> {
             "--query" | "--mode" | "--limit" | "--offset" => matches!(command, "commands" | "find"),
             "--fingerprint" | "--var" | "--timeout" => command == "run",
             "--project" => matches!(command, "inspect" | "run"),
+            "--shell" | "--history-file" => command == "find",
             _ => true,
         };
         if !applicable {
@@ -99,6 +115,8 @@ fn parse(command: &str, args: &[String]) -> Result<Options, Failure> {
             "--query" => result.query = Some(value),
             "--fingerprint" => result.fingerprint = Some(value),
             "--mode" => result.mode = Some(value),
+            "--shell" => result.shell = Some(runui_catalog::recall::Dialect::parse(&value).map_err(Failure::Usage)?),
+            "--history-file" => result.history_file = Some(value),
             "--timeout" => {
                 result.timeout_seconds = Some(
                     value
@@ -160,12 +178,23 @@ fn workspace(directory: Option<&str>) -> anyhow::Result<Workspace> {
 }
 
 pub(super) fn dispatch(
-    cancel: &std::sync::atomic::AtomicBool,
+    cancel: &std::sync::Arc<std::sync::atomic::AtomicBool>,
     command: &str,
     args: &[String],
     output: &mut dyn Write,
 ) -> Result<(), Failure> {
     let options = parse(command, args)?;
+    if options.mode.as_deref() == Some("shell") {
+        if command != "find" {
+            return Err(Failure::Usage(
+                "Private shell recall uses find --mode shell; it is never included in catalog commands.".into(),
+            ));
+        }
+        return recall::dispatch(cancel, &options, output);
+    }
+    if options.shell.is_some() || options.history_file.is_some() || options.pick || options.print0 {
+        return Err(Failure::Usage("Shell recall options require find --mode shell.".into()));
+    }
     let workspace = workspace(options.directory.as_deref())?;
     let snapshot = if matches!(command, "inspect" | "run") {
         workspace.catalog_selection(options.scope, options.project.as_deref(), options.cargo_global_aliases)?

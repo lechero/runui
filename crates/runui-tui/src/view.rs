@@ -657,10 +657,11 @@ impl App {
                 (h(&k.tabs), tabs),
                 ("↑/k ↓/j g G".into(), "along its rows"),
                 (h(&k.filter), "filter its rows by what you type; esc clears it"),
-                ("ctrl+p".into(), "search the command catalog and recent invocations; esc returns"),
+                ("ctrl+p / tab".into(), "palette: Commands / Recent / opt-in Shell history; esc returns"),
+                ("alt+h / alt+b".into(), "in Shell history: enable this session / choose fish, Zsh or Bash"),
                 ("alt+s / alt+p".into(), "in the palette: switch scope or choose registered projects"),
                 ("ctrl+v / f2".into(), "in the palette: command details or discovery diagnostics"),
-                ("alt+i".into(), "in the palette: explicitly check native Composer tool versions"),
+                ("alt+i".into(), "in Commands: explicitly check Composer versions or Cargo metadata"),
                 (
                     format!("{}, enter on a run", h(&k.focus_pane)),
                     "the output takes the keys, to scroll it; esc goes back",
