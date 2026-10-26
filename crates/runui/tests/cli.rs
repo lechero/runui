@@ -261,3 +261,18 @@ fn tmux_hides_reviewed_errors_while_other_counts_remain() {
     assert_eq!(code, EXIT_OK, "{err}");
     assert_eq!(out, "\n");
 }
+
+#[test]
+fn list_reports_partial_discovery_without_losing_other_commands() {
+    let s = sandbox();
+    fs::write(
+        filepath::join(&[&s.dir, "Taskfile.yml"]),
+        "version: '3'\nincludes:\n  remote: https://example.invalid/Taskfile.yml\ntasks:\n  check: echo check\n",
+    )
+    .unwrap();
+    let (code, output, error) = s.run(&["list", "-C", &s.dir]);
+    assert_eq!(code, EXIT_OK, "{error}");
+    assert!(output.contains("pnpm run dev"));
+    assert!(output.contains("task check"));
+    assert!(output.contains("Discovery incomplete: Taskfile.yml: include remote"));
+}

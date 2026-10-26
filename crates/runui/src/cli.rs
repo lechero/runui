@@ -239,14 +239,15 @@ fn list(w: &Workspace, out: &mut dyn Write) -> Result<()> {
         lines.push([mark + f.label(), f.command.clone(), String::new()]);
     }
     rows(out, "Favorites", &lines)?;
-    let files = project::load(&w.dir, &w.repo);
+    let discovery = project::discover(&w.dir, &w.repo);
+    let files = &discovery.files;
     if files.is_empty() {
         writeln!(
             out,
             "\nNo Taskfile, package.json, Makefile, compose file or pom.xml here, or in the folders under it."
         )?;
     }
-    for f in &files {
+    for f in files {
         let lines: Vec<[String; 3]> =
             f.commands.iter().map(|c| [c.name.clone(), c.run.clone(), c.desc.clone()]).collect();
         let mut title = format!("{} ({})", f.source.label(), f.rel_path());
@@ -254,6 +255,9 @@ fn list(w: &Workspace, out: &mut dyn Write) -> Result<()> {
             title += &format!(": {err}");
         }
         rows(out, &title, &lines)?;
+    }
+    for diagnostic in &discovery.diagnostics {
+        writeln!(out, "\nDiscovery incomplete: {}", diagnostic.description(&w.dir))?;
     }
     let mut lines = Vec::new();
     for r in &all {

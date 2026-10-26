@@ -7,14 +7,13 @@
 
 use std::collections::HashSet;
 use std::fs;
-use std::os::unix::fs::MetadataExt;
-use std::path::Path;
 use std::sync::LazyLock;
 
 use regex::Regex;
 use runui_core::golang::filepath;
 
 mod compose;
+mod discovery;
 mod makefile;
 mod maven;
 mod npm;
@@ -25,14 +24,15 @@ mod xml;
 mod yaml;
 
 pub use compose::read_compose;
+pub use discovery::{Diagnostic, Discovery, discover};
 pub use makefile::read_makefile;
 pub use maven::read_pom;
 pub use npm::read_package_json;
 pub use taskfile::read_taskfile;
 
-use compose::{compose_default, compose_files};
+use compose::compose_files;
 use makefile::MAKEFILE_NAMES;
-use taskfile::{TASKFILE_NAMES, read_taskfile_includes};
+use taskfile::TASKFILE_NAMES;
 
 /// Source is the kind of file a command comes from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -126,8 +126,8 @@ impl File {
 // much is looked at: enough for a monorepo's apps/web or a Maven
 // project's modules, not a home folder's every clone.
 pub(crate) const MAX_DEPTH: usize = 3;
-const MAX_FOLDERS: usize = 2000;
-const MAX_FILES: usize = 150;
+pub(crate) const MAX_FOLDERS: usize = 2000;
+pub(crate) const MAX_FILES: usize = 150;
 
 /// SKIPPED are the folders never looked in: what tools make and download
 /// (a dependency's own package.json isn't the project's), besides the
@@ -160,106 +160,7 @@ const SKIPPED: [&str; 17] = [
 /// stop is the repository's root, where lock files and Maven's wrapper are
 /// looked for up to.
 pub fn load(dir: &str, stop: &str) -> Vec<File> {
-    let dir = filepath::clean(dir);
-    let deep = has_project_file(&dir) || exists(&filepath::join(&[stop, ".git"]));
-    let mut files = Vec::new();
-    let mut included = HashSet::new();
-    for f in folders(&dir, deep) {
-        files.extend(load_folder(&f, stop, &mut included));
-        if files.len() >= MAX_FILES {
-            break;
-        }
-    }
-    files.retain(|f| !(f.source == Source::Taskfile && included.contains(&f.path)));
-    files
-}
-
-/// Folder is one load looks in.
-struct Folder {
-    path: String,
-    rel: String,
-}
-
-/// folders are dir and, when deep, the folders under it to MAX_DEPTH that
-/// aren't hidden or skipped, dir first and the rest by their paths.
-/// Symbolic links aren't followed.
-fn folders(dir: &str, deep: bool) -> Vec<Folder> {
-    let mut out = vec![Folder { path: dir.to_string(), rel: String::new() }];
-    if !deep {
-        return out;
-    }
-    let mut level: Vec<(String, String)> = vec![(dir.to_string(), String::new())];
-    let mut seen = 0;
-    let mut depth = 1;
-    while depth <= MAX_DEPTH && !level.is_empty() {
-        let mut next = Vec::new();
-        for (path, rel) in &level {
-            let Ok(entries) = runui_core::golang::read_dir(Path::new(path)) else { continue };
-            for e in entries {
-                let Some(name) = e.file_name().to_str().map(str::to_string) else { continue };
-                let is_dir = e.file_type().is_ok_and(|t| t.is_dir());
-                if !is_dir || name.starts_with('.') || SKIPPED.contains(&name.as_str()) {
-                    continue;
-                }
-                seen += 1;
-                if seen > MAX_FOLDERS {
-                    break;
-                }
-                next.push((filepath::join(&[path, &name]), filepath::join(&[rel, &name])));
-            }
-        }
-        out.extend(next.iter().map(|(path, rel)| Folder { path: path.clone(), rel: rel.clone() }));
-        level = next;
-        depth += 1;
-    }
-    out[1..].sort_by(|a, b| a.rel.cmp(&b.rel));
-    out
-}
-
-/// load_folder reads one folder's project files, noting the Taskfiles its
-/// Taskfile includes.
-fn load_folder(f: &Folder, stop: &str, included: &mut HashSet<String>) -> Vec<File> {
-    let mut files = Vec::new();
-    let mut add = |source: Source, file: String, label: String, cmds: Vec<Command>, err: Option<anyhow::Error>| {
-        files.push(File {
-            source,
-            path: file,
-            dir: f.path.clone(),
-            rel: f.rel.clone(),
-            label,
-            commands: cmds,
-            err: err.map(|e| e.to_string()),
-        });
-    };
-    if let Some(file) = first_file(&f.path, &TASKFILE_NAMES) {
-        let (cmds, more, err) = read_taskfile_includes(&file);
-        included.extend(more);
-        add(Source::Taskfile, file, f.rel.clone(), cmds, err);
-    }
-    let file = filepath::join(&[&f.path, "package.json"]);
-    if is_file(&file) {
-        let (cmds, err) = read_package_json(&file, stop);
-        add(Source::Npm, file, f.rel.clone(), cmds, err);
-    }
-    if let Some(file) = first_file(&f.path, &MAKEFILE_NAMES) {
-        let (cmds, err) = read_makefile(&file);
-        add(Source::Make, file, f.rel.clone(), cmds, err);
-    }
-    for (i, file) in compose_files(&f.path).into_iter().enumerate() {
-        let mut label = f.rel.clone();
-        let base = filepath::base(&file);
-        if i > 0 || !compose_default(&base) {
-            label = filepath::join(&[&f.rel, &base]);
-        }
-        let (cmds, err) = read_compose(&file, label != f.rel);
-        add(Source::Compose, file, label, cmds, err);
-    }
-    let file = filepath::join(&[&f.path, "pom.xml"]);
-    if is_file(&file) {
-        let (cmds, err) = read_pom(&file, stop);
-        add(Source::Maven, file, f.rel.clone(), cmds, err);
-    }
-    files
+    discover(dir, stop).files
 }
 
 /// root is the folder runui works in when it's opened in dir: the nearest
@@ -299,30 +200,15 @@ pub fn repo_root(dir: &str) -> String {
     }
 }
 
-/// changed says when the project's files were last written, for noticing
-/// an edit without looking through every folder again: the folder's own
-/// project files, which may come or go, and the files read before. A new
-/// one in a folder under it shows once they're all read again.
+/// changed is the legacy revision check. It rediscovers dependencies for
+/// callers that kept only files; a retained Discovery checks metadata without
+/// parsing again and should be preferred by long-lived callers.
 pub fn changed(dir: &str, files: &[File]) -> String {
-    let mut paths = vec![
-        first_file(dir, &TASKFILE_NAMES).unwrap_or_default(),
-        filepath::join(&[dir, "package.json"]),
-        first_file(dir, &MAKEFILE_NAMES).unwrap_or_default(),
-        filepath::join(&[dir, "pom.xml"]),
-    ];
-    paths.extend(compose_files(dir));
-    paths.extend(files.iter().map(|f| f.path.clone()));
-    let mut b = String::new();
-    for p in paths {
-        b.push_str(&p);
-        if !p.is_empty()
-            && let Ok(info) = fs::metadata(&p)
-        {
-            b.push_str(&format!("{}.{:09}", info.mtime(), info.mtime_nsec()));
-        }
-        b.push('|');
+    let mut discovery = discover(dir, &repo_root(dir));
+    for file in files {
+        discovery.dependencies_for_legacy(&file.path);
     }
-    b
+    discovery.revision()
 }
 
 pub(crate) fn has_project_file(dir: &str) -> bool {

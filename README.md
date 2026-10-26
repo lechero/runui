@@ -68,6 +68,8 @@ Use `tab` / `shift+tab` between panels and `[` / `]` between a panel's tabs. Pre
 
 Press `m` to star a command, or `a` to save your own named shell command. Runui notices edits to files it reads; `r` rescans, including newly added nested files. Search across every source or registered project is [planned](docs/command-discovery-plan.md); today's `/` filter applies to the current tab.
 
+Background checks also cover included Taskfiles, newly added nested command files, parent lockfiles, and Maven wrappers. Shared Taskfiles contribute every include namespace. Incomplete discovery reports skipped includes, unreadable folders, and scan limits (three levels, 2,000 folders, 150 definition files), while keeping usable commands.
+
 ## Run now, return later
 
 1. Choose a command with `j` / `k`, then press `enter`.

@@ -1,9 +1,8 @@
 //! What a Maven pom builds, and the profiles it and its modules have.
 
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
 
-use runui_core::golang::{filepath, read_file};
+use runui_core::golang::filepath;
 
 use crate::xml::{self, Token};
 use crate::{Command, MAX_DEPTH, Source, is_file, quote};
@@ -32,12 +31,20 @@ fn aem_profile(id: &str) -> Option<&'static str> {
 /// here turns on in them. It runs through the project's Maven wrapper
 /// where it has one (mvnw in the pom's folder or above, up to stop).
 pub fn read_pom(path: &str, stop: &str) -> (Vec<Command>, Option<anyhow::Error>) {
-    let pom = match read_pom_file(path) {
+    read_tracked(path, stop, &mut crate::discovery::Scan::new(&filepath::dir(path)))
+}
+
+pub(crate) fn read_tracked(
+    path: &str,
+    stop: &str,
+    scan: &mut crate::discovery::Scan,
+) -> (Vec<Command>, Option<anyhow::Error>) {
+    let pom = match read_pom_file(path, scan) {
         Ok(pom) => pom,
         Err(e) => return (Vec::new(), Some(e)),
     };
     let dir = filepath::dir(path);
-    let mvn = maven_command(&dir, stop);
+    let mvn = maven_command(&dir, stop, scan);
     let what = if pom.modules.is_empty() { "it" } else { "every module" };
     let cmd = |goals: String, desc: String| Command {
         source: Source::Maven,
@@ -58,7 +65,7 @@ pub fn read_pom(path: &str, stop: &str) -> (Vec<Command>, Option<anyhow::Error>)
         ids.push(id.clone());
         own.insert(id);
     }
-    for (module, profiles) in modules_profiles(&dir, &pom.modules, 0) {
+    for (module, profiles) in modules_profiles(&dir, &pom.modules, 0, scan) {
         for id in profiles {
             if own.contains(&id) {
                 continue;
@@ -106,8 +113,8 @@ impl Pom {
     }
 }
 
-fn read_pom_file(path: &str) -> anyhow::Result<Pom> {
-    let data = read_file(Path::new(path))?;
+fn read_pom_file(path: &str, scan: &mut crate::discovery::Scan) -> anyhow::Result<Pom> {
+    let data = scan.read(path)?;
     parse_pom(&data).map_err(|e| anyhow::anyhow!("pom.xml: {e}"))
 }
 
@@ -201,16 +208,34 @@ fn profile(d: &mut xml::Decoder) -> Result<Profile, xml::Error> {
 /// modules_profiles walks a pom's modules, and theirs, a few deep, in the
 /// order they're listed, saying each one's profiles; a module whose pom
 /// can't be read is left out.
-fn modules_profiles(dir: &str, modules: &[String], depth: usize) -> Vec<(String, Vec<String>)> {
+fn modules_profiles(
+    dir: &str,
+    modules: &[String],
+    depth: usize,
+    scan: &mut crate::discovery::Scan,
+) -> Vec<(String, Vec<String>)> {
     let mut out = Vec::new();
     if depth >= MAX_DEPTH {
+        if !modules.is_empty() {
+            scan.problem(Some(Source::Maven), dir, "module discovery reached its depth limit");
+        }
         return out;
     }
     for m in modules {
+        if !scan.expand(Source::Maven, dir) {
+            break;
+        }
         let mdir = filepath::join(&[dir, m]);
-        let Ok(p) = read_pom_file(&filepath::join(&[&mdir, "pom.xml"])) else { continue };
+        let path = filepath::join(&[&mdir, "pom.xml"]);
+        let p = match read_pom_file(&path, scan) {
+            Ok(pom) => pom,
+            Err(err) => {
+                scan.problem(Some(Source::Maven), &path, err.to_string());
+                continue;
+            }
+        };
         out.push((m.clone(), p.profiles()));
-        for (sub, profiles) in modules_profiles(&mdir, &p.modules, depth + 1) {
+        for (sub, profiles) in modules_profiles(&mdir, &p.modules, depth + 1, scan) {
             out.push((format!("{m}/{sub}"), profiles));
         }
     }
@@ -219,17 +244,19 @@ fn modules_profiles(dir: &str, modules: &[String], depth: usize) -> Vec<(String,
 
 /// maven_command is how Maven runs in a folder: the project's wrapper, the
 /// nearest mvnw from dir up to stop, as a path from dir; else mvn.
-fn maven_command(dir: &str, stop: &str) -> String {
+fn maven_command(dir: &str, stop: &str, scan: &mut crate::discovery::Scan) -> String {
     let stop = filepath::clean(stop);
     let mut d = filepath::clean(dir);
     loop {
-        if is_file(&filepath::join(&[&d, "mvnw"]))
+        let wrapper = filepath::join(&[&d, "mvnw"]);
+        scan.watch(&wrapper);
+        if is_file(&wrapper)
             && let Some(rel) = filepath::rel(dir, &d)
         {
             return format!("{rel}/mvnw"); // ./mvnw, ../mvnw: sh wants the slash
         }
         let parent = filepath::dir(&d);
-        if d == stop || parent == d || !d.starts_with(&stop) {
+        if d == stop || parent == d || !std::path::Path::new(&d).starts_with(&stop) {
             return "mvn".to_string();
         }
         d = parent;

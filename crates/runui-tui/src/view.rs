@@ -574,13 +574,16 @@ impl App {
     /// its project files.
     fn overview(&self) -> Vec<String> {
         let mut lines = vec![S_TITLE.render(&format!("runui in {}", self.short(&self.cfg.dir))), String::new()];
-        if self.files.is_empty() {
+        if self.discovery.files.is_empty() {
             lines.push(S_DIM.render(
                 "No Taskfile, package.json, Makefile, compose file or pom.xml here, or in the folders under it.",
             ));
         }
-        let width = self.files.iter().map(|f| f.rel_path().len()).max().unwrap_or(0);
-        for f in &self.files {
+        for diagnostic in &self.discovery.diagnostics {
+            lines.push(S_BAD.render(&format!("Discovery incomplete: {}", diagnostic.description(&self.cfg.dir))));
+        }
+        let width = self.discovery.files.iter().map(|f| f.rel_path().len()).max().unwrap_or(0);
+        for f in &self.discovery.files {
             let what = match f.source {
                 project::Source::Taskfile => "tasks",
                 project::Source::Npm => "scripts",

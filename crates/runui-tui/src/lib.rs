@@ -18,7 +18,7 @@ use std::time::{Duration, Instant, SystemTime};
 use chrono::{DateTime, Utc};
 use runui_core::golang::filepath;
 use runui_favorites::{Favorite, Store as Favorites};
-use runui_project::{self as project, File};
+use runui_project::{self as project, Discovery, File};
 use runui_runs::{self as runs, Output, Run};
 use runui_tea::bubbles::{help, key, textinput};
 use runui_tea::tea::{
@@ -74,10 +74,8 @@ pub struct Config {
     pub home: String,
     pub favorites: Favorites,
     pub runs: Arc<dyn Runner>,
-    /// project::load, unless a test gives its own
-    pub load: fn(&str, &str) -> Vec<File>,
-    /// project::changed, likewise
-    pub changed: fn(&str, &[File]) -> String,
+    /// project::discover, unless a test gives its own
+    pub discover: fn(&str, &str) -> Discovery,
     pub now: fn() -> DateTime<Utc>,
 }
 
@@ -91,8 +89,7 @@ impl Config {
             home: home.to_string(),
             favorites,
             runs,
-            load: project::load,
-            changed: project::changed,
+            discover: project::discover,
             now: Utc::now,
         }
     }
@@ -161,9 +158,10 @@ struct App {
     /// the panel with the focus
     cur: usize,
     focus: Focus,
-    files: Vec<File>,
-    /// when the project's files were written, to notice an edit
-    stamp: String,
+    discovery: Arc<Discovery>,
+    discovery_generation: u64,
+    discovery_busy: bool,
+    discovery_queued: bool,
     runs: Vec<Run>,
     stopping: HashSet<String>,
     out: Option<Output>,
@@ -188,6 +186,12 @@ struct Confirm {
 }
 
 struct TickMsg(#[allow(dead_code)] SystemTime);
+
+struct DiscoveryMsg {
+    generation: u64,
+    discovery: Option<Discovery>,
+    manual: bool,
+}
 
 struct RunsMsg {
     list: Vec<Run>,
@@ -246,8 +250,10 @@ impl Model {
             ],
             cur: 0,
             focus: Focus::Side,
-            files: Vec::new(),
-            stamp: String::new(),
+            discovery: Arc::new(Discovery::default()),
+            discovery_generation: 0,
+            discovery_busy: false,
+            discovery_queued: false,
             runs: Vec::new(),
             stopping: HashSet::new(),
             out: None,
@@ -261,7 +267,7 @@ impl Model {
             keys_shown: false,
             ticks: 0,
         };
-        a.load_files();
+        a.set_discovery((a.cfg.discover)(&a.cfg.dir, &a.cfg.repo));
         if let Ok(list) = a.cfg.runs.list() {
             a.set_runs(list);
         }
@@ -277,7 +283,7 @@ impl Model {
             }
         } else if a.runs.iter().any(|r| a.here(r) && r.live()) {
             a.cur = PANEL_RUNS;
-        } else if !a.files.is_empty() {
+        } else if !a.discovery.files.is_empty() {
             a.cur = PANEL_PROJECT;
         }
         a.sync_output();
@@ -333,12 +339,32 @@ impl App {
             if self.ticks % 2 == 0 {
                 cmds.push(self.list_runs());
             }
-            if self.ticks % 8 == 0 && (self.cfg.changed)(&self.cfg.dir, &self.files) != self.stamp {
-                self.load_files();
+            if self.ticks % 8 == 0 {
+                cmds.push(self.refresh_files(false));
             }
             self.read_output();
             return tea::batch(cmds);
         }
+        let msg = match msg.downcast::<DiscoveryMsg>() {
+            Ok(msg) => {
+                if msg.generation != self.discovery_generation {
+                    return None;
+                }
+                self.discovery_busy = false;
+                if self.discovery_queued {
+                    self.discovery_queued = false;
+                    return self.refresh_files(true);
+                }
+                if let Some(discovery) = msg.discovery {
+                    self.set_discovery(discovery);
+                }
+                if msg.manual {
+                    self.say("read the project's files again", false);
+                }
+                return None;
+            }
+            Err(msg) => msg,
+        };
         let msg = match msg.downcast::<RunsMsg>() {
             Ok(m) => {
                 self.set_runs(m.list);
@@ -401,21 +427,43 @@ impl App {
         (self.note, self.note_bad) = (note.to_string(), bad);
     }
 
-    /// load_files reads the project's files: a tab for each kind in the
-    /// Project panel, the project's own commands first and then each
-    /// folder's under it, the cursor kept on the command it was on.
-    fn load_files(&mut self) {
-        self.files = (self.cfg.load)(&self.cfg.dir, &self.cfg.repo);
-        self.stamp = (self.cfg.changed)(&self.cfg.dir, &self.files);
+    /// refresh_files checks and rereads dependencies away from the interface.
+    /// Manual refreshes are coalesced while a scan is in flight.
+    fn refresh_files(&mut self, manual: bool) -> Cmd {
+        if self.discovery_busy {
+            self.discovery_queued |= manual;
+            return None;
+        }
+        self.discovery_busy = true;
+        self.discovery_generation += 1;
+        let generation = self.discovery_generation;
+        let previous = self.discovery.clone();
+        let (dir, repo) = (self.cfg.dir.clone(), self.cfg.repo.clone());
+        let discover = self.cfg.discover;
+        tea::cmd(move || {
+            let discovery = if manual || previous.changed() { Some(discover(&dir, &repo)) } else { None };
+            Some(tea::msg(DiscoveryMsg { generation, discovery, manual }))
+        })
+    }
+
+    /// set_discovery keeps the source tab, filter and cursor when results change.
+    fn set_discovery(&mut self, discovery: Discovery) {
+        self.discovery = Arc::new(discovery);
         let p = &mut self.panels[PANEL_PROJECT];
         let showing = p.views.get(p.cur).map(|v| v.name.clone()).unwrap_or_default();
         let mut old: HashMap<String, View> = p.views.drain(..).map(|v| (v.name.clone(), v)).collect();
         p.cur = 0;
         for source in project::SOURCES {
             let mut items = Vec::new();
-            let mut problems = Vec::new();
+            let mut problems: Vec<_> = self
+                .discovery
+                .diagnostics
+                .iter()
+                .filter(|problem| problem.source.is_none_or(|kind| kind == source))
+                .map(|problem| format!("discovery incomplete: {}", problem.description(&self.cfg.dir)))
+                .collect();
             let mut found = false;
-            for f in self.files.iter().filter(|f| f.source == source) {
+            for f in self.discovery.files.iter().filter(|f| f.source == source) {
                 found = true;
                 if let Some(err) = &f.err {
                     problems.push(format!("{}: {err}", f.rel_path()));
@@ -453,7 +501,11 @@ impl App {
             p.views.push(v);
         }
         if p.views.is_empty() {
-            p.views = vec![View::new("Project", "no Taskfile, package.json, Makefile, compose file or pom.xml here")];
+            let mut view = View::new("Project", "no Taskfile, package.json, Makefile, compose file or pom.xml here");
+            if let Some(problem) = self.discovery.diagnostics.first() {
+                view.note = format!("discovery incomplete: {}", problem.description(&self.cfg.dir));
+            }
+            p.views = vec![view];
         }
         self.load_favorites(); // their descriptions are the project's
     }
@@ -488,7 +540,8 @@ impl App {
     /// project_command is the project's command with a command line in a
     /// folder, and the file it's in.
     fn project_command(&self, dir: &str, command: &str) -> Option<(&project::Command, &File)> {
-        self.files
+        self.discovery
+            .files
             .iter()
             .filter(|f| f.dir == dir)
             .find_map(|f| f.commands.iter().find(|c| c.run == command).map(|c| (c, f)))
@@ -885,9 +938,7 @@ impl App {
             if let Err(err) = self.cfg.favorites.reload() {
                 self.say(&err.to_string(), true);
             }
-            self.load_files();
-            self.say("read the project's files again", false);
-            return self.list_runs();
+            return tea::batch(vec![self.refresh_files(true), self.list_runs()]);
         }
         None
     }

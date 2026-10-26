@@ -4,7 +4,7 @@ use std::path::Path;
 use std::sync::LazyLock;
 
 use regex::Regex;
-use runui_core::golang::{filepath, read_dir, read_file};
+use runui_core::golang::{filepath, read_dir};
 
 use crate::yaml::{self, Doc, MAPPING_NODE, SCALAR_NODE};
 use crate::{Command, Source, is_file, quote};
@@ -56,7 +56,15 @@ pub(crate) fn compose_files(dir: &str) -> Vec<String> {
 /// its own with what it's made from. named runs it with -f, for a file
 /// docker compose doesn't read by itself.
 pub fn read_compose(path: &str, named: bool) -> (Vec<Command>, Option<anyhow::Error>) {
-    let data = match read_file(Path::new(path)) {
+    read_tracked(path, named, &mut crate::discovery::Scan::new(&filepath::dir(path)))
+}
+
+pub(crate) fn read_tracked(
+    path: &str,
+    named: bool,
+    scan: &mut crate::discovery::Scan,
+) -> (Vec<Command>, Option<anyhow::Error>) {
+    let data = match scan.read(path) {
         Ok(data) => data,
         Err(e) => return (Vec::new(), Some(e)),
     };
