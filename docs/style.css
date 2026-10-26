@@ -16,7 +16,7 @@
 }
 
 * { box-sizing: border-box; }
-html { scroll-behavior: smooth; scroll-padding-top: 100px; }
+html { scroll-behavior: smooth; }
 body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--font-sans); line-height: 1.65; -webkit-font-smoothing: antialiased; }
 a { color: var(--accent); text-underline-offset: 3px; }
 a:hover { color: #b8e8ff; }
@@ -49,7 +49,7 @@ img { max-width: 100%; height: auto; display: block; }
 main { min-width: 0; }
 
 .hero { padding-top: 62px; position: relative; }
-.hero::before { content: ""; position: absolute; z-index: -1; top: 10px; right: -60px; width: 540px; height: 370px; background: radial-gradient(ellipse, rgba(36, 111, 144, .19), transparent 68%); pointer-events: none; }
+.hero::before { content: ""; position: absolute; z-index: -1; top: 10px; right: 0; width: min(540px, 100%); height: 370px; background: radial-gradient(ellipse, rgba(36, 111, 144, .19), transparent 68%); pointer-events: none; }
 .hero-copy { max-width: 920px; }
 .eyebrow { display: flex; align-items: center; gap: 13px; margin: 0 0 23px; }
 .eyebrow-rule { display: block; width: 30px; height: 1px; background: var(--accent); }
@@ -68,8 +68,8 @@ h1 em { color: var(--accent); font-style: normal; }
 .hero-facts strong { color: var(--green); font-size: 15px; }
 
 .screen { margin: 28px 0 8px; }
-.screen a { display: block; overflow: hidden; border: 1px solid #40526a; border-radius: 12px; box-shadow: 0 22px 52px rgba(0, 0, 0, .31), 0 0 0 5px rgba(125, 211, 252, .025); }
-.screen a:hover { border-color: var(--accent); }
+.screen > a { display: block; overflow: hidden; border: 1px solid #40526a; border-radius: 12px; box-shadow: 0 22px 52px rgba(0, 0, 0, .31), 0 0 0 5px rgba(125, 211, 252, .025); }
+.screen > a:hover { border-color: var(--accent); }
 .screen img { width: 100%; background: #0b1220; }
 .screen figcaption { margin: 12px 0 0; color: var(--quiet); font-size: 12px; line-height: 1.5; }
 .hero-screen { margin-top: 0; }
@@ -115,7 +115,7 @@ kbd { display: inline-block; min-width: 20px; padding: 1px 5px; border-radius: 4
 .source-card > code { color: var(--accent); font-size: 11px; overflow-wrap: anywhere; }
 .source-shots { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 22px 0 0; }
 .source-shots .screen { min-width: 0; margin: 0; }
-.source-shots .screen a { border-radius: 7px; }
+.source-shots .screen > a { border-radius: 7px; }
 .source-shots figcaption { font-size: 11px; }
 .callout { margin: 29px 0; padding: 20px 22px; border-left: 3px solid var(--accent); border-radius: 0 8px 8px 0; background: linear-gradient(90deg, #172d41, #121e30); }
 .callout strong { color: #eaf5fc; }
@@ -147,7 +147,7 @@ kbd { display: inline-block; min-width: 20px; padding: 1px 5px; border-radius: 4
 .status-command-grid p { margin: 7px 0 0; color: #adbacb; font-size: 12px; }
 .two-screens { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; }
 .two-screens .screen { min-width: 0; margin: 0 0 24px; }
-.two-screens .screen a { border-radius: 8px; }
+.two-screens .screen > a { border-radius: 8px; }
 .two-screens figcaption { font-size: 11px; }
 .snapshot-pair { margin-top: 26px; }
 
@@ -254,4 +254,41 @@ td:last-child { color: #adbbca; }
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
   .button { transition: none; }
+}
+
+/* The four entry points mirror the app; demos wait for the reader to play. */
+.panel-map { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 30px 0 0; }
+.panel-map a { display: grid; grid-template-columns: auto 1fr; gap: 10px; min-width: 0; padding: 15px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); text-decoration: none; }
+.panel-map a:hover { border-color: var(--accent); background: var(--surface-raised); }
+.panel-map strong { color: var(--text); font-size: 14px; }
+.panel-map span { grid-column: 1 / -1; color: var(--muted); font-size: 12px; }
+.screen > video { display: block; width: 100%; height: auto; border: 1px solid #40526a; border-radius: 12px; background: #0b1220; box-shadow: 0 22px 52px rgba(0, 0, 0, .31); }
+.demo-notes { margin-top: 12px; color: var(--muted); font-size: 13px; }
+.demo-notes summary, .reference-details summary { color: var(--accent); cursor: pointer; width: fit-content; }
+.demo-notes ol { padding-left: 22px; margin: 12px 0; }
+.reference-details { margin: 25px 0; padding: 18px 20px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--muted); font-size: 14px; }
+.reference-details summary { font-weight: 650; }
+.reference-details[open] summary { margin-bottom: 18px; }
+.agent-flow { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; list-style: none; padding: 0; margin: 28px 0; }
+.agent-flow li { min-width: 0; padding: 18px; border: 1px solid var(--border); border-top: 2px solid var(--accent); border-radius: 9px; background: var(--surface); }
+.agent-flow span { display: block; color: var(--green); font: 700 10px/1.4 var(--font-mono); margin-bottom: 15px; }
+.agent-flow code { background: none; border: none; padding: 0; font-size: 12px; }
+.agent-flow p { color: var(--muted); font-size: 12px; margin: 10px 0 0; }
+.demo-downloads { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin: 26px 0; }
+.demo-downloads article { min-width: 0; padding: 22px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+.demo-downloads h3 { margin-top: 18px; }
+.demo-downloads p { font-size: 13px; color: var(--muted); }
+.demo-downloads a { display: block; width: fit-content; font-size: 13px; margin-top: 9px; }
+h1, h2, h3 { text-wrap: balance; }
+section[id] { scroll-margin-top: 20px; }
+#content { scroll-margin-top: 80px; }
+a, summary, video { touch-action: manipulation; }
+@media (max-width: 1120px) {
+  .panel-map, .agent-flow { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 800px) {
+  .demo-downloads { grid-template-columns: 1fr; }
+}
+@media (max-width: 380px) {
+  .panel-map, .agent-flow { grid-template-columns: 1fr; }
 }

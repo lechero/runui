@@ -1,155 +1,194 @@
 # Runui
 
-<img src="docs/assets/runui-logo.svg" alt="runui logo: terminal prompt and cursor" width="292">
+<img src="docs/assets/runui-logo.svg" alt="runui: terminal prompt and cursor" width="292" height="96">
 
-**Every command your project can run. One place to run it.** Runui finds Taskfile tasks, package scripts, Make targets, Compose services, and Maven builds, including those in nested folders. Pick a command, watch its output, and leave whenever you like. Its supervisor keeps the run alive and its output ready for your return.
+**Find the command. Keep the run. Come back to its output.**
 
-| Discover | Run | Return |
-| --- | --- | --- |
-| Browse your project's commands without memorizing which file owns them. | Follow live output in the pane while each command runs in its own folder. | Reopen Runui to read, stop, or restart a run—even after closing the terminal. |
+Runui brings your project commands, persistent processes, finished history, and agent runs into one Rust terminal app. Discover tasks and scripts across nested folders, star the ones you use, and follow their output. Close runui whenever you like; its supervisors keep the work going.
 
-![runui tour: favorite, run, inspect, filter, stop](docs/assets/tour.gif)
+[Illustrated guide](docs/index.html) · [MCP setup](#give-your-agent-the-same-tools) · [Log & history](#a-log-you-can-come-back-to) · [Keyboard reference](#keys-at-a-glance) · [Brand kit](docs/brand.html)
 
-[Explore the illustrated guide](docs/index.html) for the full tour.
+![Real runui tour: discover, favorite, run, reopen, filter, stop, and return to Log](docs/assets/tour.gif)
 
-## Install
+| Find | Run | Review | Share with an agent |
+| --- | --- | --- | --- |
+| Five command sources, nested folders, filters, and per-project favorites. | Live output under a supervisor that outlives the app and terminal. | A global Log of successes, failures, stopped runs, and repeated attempts. | Six local MCP tools using the same processes, metadata, and output. |
+
+## Install & open
 
 With Homebrew on macOS or Linux:
 
 ```sh
 brew tap lechero/runui https://github.com/lechero/runui.git
 brew install lechero/runui/runui
+runui
 ```
 
-This builds Runui from source and installs Rust as a build dependency. To build from a clone with Rust 1.88 or newer:
+Homebrew builds from source and installs Rust as a build dependency. To build the current source yourself, use Rust 1.88 or newer:
 
 ```sh
-task install
-```
-
-This installs `runui` to `~/.local/bin`. Without [Task](https://taskfile.dev):
-
-```sh
+git clone https://github.com/lechero/runui.git
+cd runui
 cargo install --path crates/runui --root ~/.local --locked
 ```
 
-Make sure `~/.local/bin` is on your `PATH`. Commands discovered in a project use that project's tools, such as `task`, a package manager, `make`, `docker compose`, or Maven.
-
-## Start here
+Or run `task install` from the clone. Put `~/.local/bin` on your `PATH`. Discovered commands use the project's own tools: Task, a package manager, Make, Docker Compose, or Maven.
 
 ```sh
-runui                   # open the interface for the current project
-runui -C ~/projects/app  # open another project
-runui list              # print its favorites, commands, and runs
-runui ps                # print runs from all folders, live ones first
-runui status            # print counts for a terminal status line
-runui status tmux       # print a colored tmux segment, hiding zero counts
-runui status clear      # dismiss finished counts, keeping runs and output
-runui mcp -C ~/projects/app  # serve tools to an MCP client over stdio
+runui                       # open the current project
+runui -C ~/projects/atlas    # choose another project
+runui list                  # print favorites, commands, and this project's runs
+runui ps                    # show runs from every folder, live ones first
 ```
 
-Opening from `src/` or another subfolder selects the nearest parent with a supported project file, up to the repository root. The Project panel also finds files in folders below it, three levels deep, so commands from `apps/web` or a Maven module appear with their folder and run there.
+Opening inside `src/` or another subfolder selects the nearest parent with a supported project file, up to the repository root. Discovery includes folders three levels below the selected project; commands from `apps/web` appear with their folder and run there.
 
-### Where commands come from
+## Four panels, one workspace
 
-| Project file | Commands runui offers |
-| --- | --- |
-| `Taskfile.yml` | Tasks, including named tasks from included Taskfiles; internal tasks are hidden. |
-| `package.json` | Scripts through its declared package manager or the nearest lock file's manager: pnpm, yarn, bun, or npm. |
-| `Makefile` | Targets, with `##` comments as descriptions. |
-| `compose.yaml` and other Compose files | `up`, `up --build`, `down`, `ps`, `logs -f`, and `up` for each service. |
-| `pom.xml` | `clean install`, `clean verify`, `test`, and builds for non-default profiles; uses `mvnw` when present. |
-
-Use `m` to star a discovered command for this folder, or `a` to add your own shell command. Favorites are saved per folder.
-
-![The Project panel showing package scripts from the root and apps/web](docs/assets/scripts.png)
-
-## A typical session
-
-1. Select a command with `j`/`k`, or switch panels with `tab` and source tabs with `[`/`]`.
-2. Press `enter` to run it. Output appears on the right as the command prints it.
-3. Press `q` when you are done looking. The run keeps going under its own supervisor.
-4. Open runui again to follow the same output. Press `s` to stop it or `R` to restart it.
-
-![runui following the output of a starred command](docs/assets/running.png)
-
-The Runs panel has **Here** and **Everywhere** tabs, and an **Agents** tab once an agent has started a run through `runui mcp`. `●` means running, `✓` exited successfully, `✗` failed, `■` was stopped, and `?` means runui lost track of it.
-
-Press `4` to open **Log**, a global inbox and history of finished runs:
-
-- **Unread** lists successful, failed, and lost results that still count in tmux. A `•` marks an unread result. Select a row to view its output and clear its completion or error notice. The selected result stays visible while you read; refreshing never clears the next result automatically.
-- **All** keeps finished attempts, including reviewed and deliberately stopped runs, newest finish first. Running processes stay in Runs and keep their running count. Switch tabs with `[` / `]`.
-
-Use `/` to find a run by name, command, folder, outcome (`completed`, `failed`, `lost`, `stopped`), or agent. Press `R` to run it again and follow the new attempt in Runs, `y` to copy its command, or `D` to forget it and its output. Repeat runs keep their own history and review state within the retention limit.
-
-![Log showing unread successes and failures from different projects, with a reviewed result still open](docs/assets/log.png)
-
-### Keys at a glance
-
-| Keys | Action |
-| --- | --- |
-| `tab` / `shift+tab`, `1`–`4` | Move between Favorites, Project, Runs, and Log. |
-| `[` / `]` | Switch source tabs, Runs tabs, or Log Unread / All. |
-| `j` / `k`, `g` / `G` | Move through rows. |
-| `/` | Filter rows; runs also match outcome and agent. |
-| `enter` | Run a command; on a run, focus its output. |
-| `s` / `R` | Stop or restart a run. |
-| `m` / `a` / `e` / `D` | Star, add, edit, or remove a favorite; `D` also forgets an ended run. |
-| `0`, `esc`, `+` / `_` | Focus output, return to a panel, or expand / restore the output. |
-| `?` | Show every key in the app. |
-| `q` | Quit while runs continue. |
-
-The interface also supports mouse selection and scrolling. [The guide](docs/index.html#keyboard) covers output scrolling, copying commands, refreshing files, and favorite order.
-
-## Runs and data
-
-Each command runs in its own folder through `sh -c` (and through `mise exec` when mise is available). A separate supervisor keeps it alive after runui or its terminal closes. It records output and the final state, and stops the command's process group with SIGTERM followed by SIGKILL after five seconds if needed.
-
-| Data | Default location | Override |
+| Key | Panel | What's there |
 | --- | --- | --- |
-| Favorites | `~/.config/runui/favorites.json` | `$XDG_CONFIG_HOME/runui/favorites.json` |
-| Runs and output | `~/.local/state/runui/runs` | `$XDG_STATE_HOME/runui/runs` |
+| `1` | **Favorites** | Starred project commands and shell commands of your own, saved per project. |
+| `2` | **Project** | Taskfile, package.json, Makefile, Compose, and Maven tabs. Filter a tab with `/`. |
+| `3` | **Runs** | **Here**, **Everywhere**, and an **Agents** tab once MCP runs exist. Read, stop, or restart the same processes. |
+| `4` | **Log** | **Unread** results needing a look and **All** retained finished attempts, across every folder. |
 
-When a new run starts, Runui keeps the forty most recent previous ended runs across folders, including repeated commands. Their output remains available until the run is forgotten or pruned.
+Use `tab` / `shift+tab` between panels and `[` / `]` between a panel's tabs. Press `?` for the full in-app key sheet. Mouse selection and scrolling work too.
 
-### Status line
+### Commands already in your project
 
-`runui status` reads all stored runs and prints one stable, shell-friendly line:
+| Source | Commands offered |
+| --- | --- |
+| `Taskfile.yml` | Tasks and namespaced includes, with descriptions; internal tasks stay hidden. |
+| `package.json` | Scripts through pnpm, yarn, bun, or npm, selected by `packageManager` or the nearest lock file. |
+| `Makefile` | Targets, with `##` comments as descriptions. |
+| Compose files | `up`, `up --build`, `down`, `ps`, `logs -f`, and `up` for individual services. |
+| `pom.xml` | Install, verify, test, and non-default profile builds; uses `mvnw` when present. |
 
-```text
-running=2 completed=1 errored=0
+![Root scripts and apps/web scripts in the Project panel](docs/assets/scripts.png)
+
+Press `m` to star a command, or `a` to save your own named shell command. Runui notices edits to files it reads; `r` rescans, including newly added nested files. Search across every source or registered project is [planned](docs/command-discovery-plan.md); today's `/` filter applies to the current tab.
+
+## Run now, return later
+
+1. Choose a command with `j` / `k`, then press `enter`.
+2. Follow its output. Press `q` or close the terminal while work continues.
+3. Reopen runui to find the same process and stored output.
+4. Press `s` to stop it, or `R` to start a fresh attempt.
+
+Every run uses its own working directory and supervisor. `●` is running, `✓` exited successfully, `✗` failed, `■` was deliberately stopped, and `?` means its supervisor disappeared without a final result.
+
+## A Log you can come back to
+
+Press **`4`**. **Unread** gathers successful, failed, and lost results from **every folder**, including runs started by an agent. A `•` marks an unread result. Selecting a row previews its output and clears that result's completion or error notice in tmux. The output pane does not need focus.
+
+The selected result stays while you read; refreshes do not silently review the next one. If a live run finishes while its output is visible, it is reviewed then. **Running processes keep their counts.**
+
+Switch to **All** with `]` to revisit reviewed and stopped runs, newest finish first. Repeat attempts keep their own output and review state. Filter by command, folder, outcome (`completed`, `failed`, `lost`, `stopped`), or agent; use `R` to follow a new attempt in Runs, `y` to copy its command, or `D` to forget an ended run and its output.
+
+<details>
+<summary>Watch: review results, clear notices, keep the history</summary>
+
+![Log tour: view failures and successes one at a time, then revisit their preserved output in All](docs/assets/log-tour.gif)
+
+</details>
+
+[Still screenshot](docs/assets/log.png) · [Play or pause the demo in the guide](docs/index.html#log)
+
+## Give your agent the same tools
+
+Runui includes a local **MCP stdio server**. An agent can discover exact commands and working directories, start persistent runs, follow output, and stop processes. You can inspect those same runs in **Runs → Agents**, identified by the MCP client's name, and review their finished results in Log.
+
+Configure your client's MCP server settings with the absolute binary and project paths. For clients using `mcpServers`:
+
+```json
+{
+  "mcpServers": {
+    "runui": {
+      "command": "/Users/you/.local/bin/runui",
+      "args": ["mcp", "-C", "/Users/you/projects/atlas"]
+    }
+  }
+}
 ```
 
-Starting and active commands count as running. A command that exits with code 0 counts as completed; a nonzero exit, failed start, or lost supervisor counts as errored. Deliberately stopped runs are omitted. Counts cover every folder.
+Use your installed paths (`command -v runui`), including `/home/you/…` on Linux. Client configuration shapes vary; the launch command is always `runui mcp -C /absolute/project`. There is no network listener or API key to configure.
 
-For tmux, append Runui's formatted segment to your existing right side and poll every five seconds:
+| Tool | Inputs | Result |
+| --- | --- | --- |
+| `list_commands` | `{}` | Discovered commands and favorites, exact shell commands and directories, and file-reading errors. |
+| `start_run` | `command`; optional `directory`, `name` | A supervised run and its ID. Directories may be absolute or relative to the selected project. |
+| `list_runs` | Optional `directory` | Runs from every folder, newest first; the optional filter matches one exact working directory. |
+| `get_run` | `id` | State, timestamps, exit code, agent, output path, and other metadata. |
+| `read_output` | `id`; optional `lines` | Latest plain-text tail and state: 100 lines by default, up to 500 lines and 64 KiB. Poll again to follow output. |
+| `stop_run` | `id` | A stop request; poll `get_run` for the final state. |
+
+![An MCP-started run in the Agents tab, with its client identity and live output](docs/assets/agents.png)
+
+<details>
+<summary>Watch: MCP starts work, the TUI follows it, and Log keeps the result</summary>
+
+![MCP tour: start a run, disconnect, read and stop it, then review agent results in Log](docs/assets/agents-tour.gif)
+
+</details>
+
+The client name comes from MCP's `initialize.clientInfo.name`. Run metadata includes `agent` and `output_file`; the latter points to the complete raw output file. Closing runui or disconnecting the MCP client leaves its runs alive. TUI-started runs are available through the same tools.
+
+MCP reads do not clear completion or error notices: view the result in the TUI or use `runui status clear`. The [guide](docs/index.html#mcp) includes tool-call examples and the discover → start → follow → stop workflow.
+
+## Quiet tmux counters
 
 ```tmux
 set -g status-interval 5
 set -ag status-right '#(runui status tmux)'
 ```
 
-`runui status tmux` shows `▶` running in blue, `✓` completed in green, and `✗` errored in red. It hides each zero count, and prints an empty segment when all three are zero. The plain `runui status` output remains available to other status bars and scripts.
-
-If `runui status` shows counts but tmux shows nothing, use the absolute path from `command -v runui` inside `#(...)` and reload your tmux configuration. The tmux server may have a different `PATH` from a new shell.
-
-Finished results stay counted until you **view their output** in Runui. Selecting a run, favorite, or project command that shows a finished run's output marks that result as reviewed; the output pane does not need focus. A run that finishes while its output is visible is marked as reviewed then. Log (`4`) gathers unread completions and failures from every folder; its All tab keeps the history after review. Running processes remain counted. Run `runui status clear` to dismiss all finished counts at once. Viewing or clearing results keeps run history and output.
-
-## Use with an agent
-
-Run `runui mcp -C /absolute/path/to/project` as a local MCP stdio server. Point your agent's MCP client at the installed `runui` binary with those arguments. The server offers `list_commands`, `start_run`, `list_runs`, `get_run`, `read_output`, and `stop_run` tools. A run started by an agent appears in the TUI, in the Agents tab under the name its MCP client gives, and keeps running after the MCP client disconnects; runs started in the TUI are available through the same tools.
-
-`start_run` accepts a shell command and optional working directory and label. `list_commands` returns the exact command and directory for discovered project commands and favorites. `read_output` returns recent plain text, up to 500 lines and 64 KiB per call; call it again to follow a live run. Runs come back with the `agent` that started them and their `output_file`, everything the run printed, for a client that would rather read it itself. The [MCP guide](docs/index.html#mcp) has a client configuration example and the full tool reference.
-
-## Develop
+`▶` counts active runs in blue, `✓` unread successes in green, and `✗` unread failures or lost runs in red. Each zero segment disappears; when all are zero, the whole segment is empty. Deliberately stopped runs stay out. Log and tmux cover the same global run store.
 
 ```sh
-task build     # build bin/runui
-task run       # build and open runui in the current folder
-task test      # workspace tests and clippy
-task lint      # clippy and rustfmt checks
+runui status        # running=2 completed=1 errored=0
+runui status tmux   # colored tmux segment with zeros hidden
+runui status clear  # clear finished notices, keeping processes and output
 ```
 
-The CI workflow checks tests, formatting, and Clippy on macOS and Linux. A `v*` tag runs the release workflow, which publishes archives for macOS and Linux. Documentation captures can be regenerated with `python3 scripts/capture-docs.py` after `task build` (requires tmux and Pillow). The capture script uses a temporary home and project. Raster brand exports come from `python3 scripts/build-brand-assets.py` (requires Pillow and librsvg).
+If your shell and tmux disagree, use the absolute path from `command -v runui` in `#(...)`, then reload tmux. Its server may have a different `PATH`. After viewing a result, allow the configured polling interval for the status line to update.
 
-For the implementation layout, see [AGENTS.md](AGENTS.md). The [brand kit](docs/brand.html) contains the vector logo, icons, and social preview. License: [MIT](LICENSE).
+## Keys at a glance
+
+| Keys | Action |
+| --- | --- |
+| `1`–`4`, `tab` / `shift+tab` | Favorites, Project, Runs, Log. |
+| `[` / `]` | Switch the current panel's tabs. |
+| `j` / `k`, `g` / `G` | Move through rows. |
+| `/`, `esc` | Filter the current tab; clear the filter. |
+| `enter` | Run a command; on a run, focus its output. |
+| `s` / `R` | Stop or restart a run. |
+| `m` / `a` / `e` / `D` | Star, add, edit, or remove; `D` also forgets an ended run. |
+| `y`, `r` | Copy the command; reload project files. |
+| `0`, `esc`, `+` / `_` | Focus output, return to the panel, expand / restore output. |
+| `pgup` / `pgdn`, `J` / `K` | Scroll output from the panel. |
+| `?`, `q` | Show all keys; quit while runs continue. |
+
+## Your files & history
+
+| Data | Default location | Override |
+| --- | --- | --- |
+| Favorites | `~/.config/runui/favorites.json` | `$XDG_CONFIG_HOME/runui/favorites.json` |
+| Runs and output | `~/.local/state/runui/runs` | `$XDG_STATE_HOME/runui/runs` |
+
+Each run has `run.json`, `output.log`, a supervisor lock, and a `status.seen` marker once its result has been reviewed. Starting a new run keeps the 40 most recent previous ended runs across folders, including repeated commands. Output remains until the run is forgotten or pruned.
+
+Commands run through `sh -c`, using `mise exec` when available. Stopping sends SIGTERM to the process group, then SIGKILL after five seconds if necessary.
+
+## Develop & refresh the demos
+
+```sh
+task build          # build bin/runui
+task run            # build and open the current folder
+task test           # workspace tests and clippy
+task lint           # clippy and rustfmt checks
+task docs:capture   # rebuild screenshots, 3 GIFs, and 3 playable videos
+```
+
+Captures need Python 3.10+, Pillow, tmux, Task, and ffmpeg. They exercise the real Rust app and all six MCP tools in temporary projects and private tmux sessions. Your favorites and run history are untouched. [Media maintenance](docs/README.md) covers regeneration and local preview.
+
+CI runs tests, formatting, and clippy on macOS and Linux. A `v*` tag publishes release archives. See [AGENTS.md](AGENTS.md) for the code layout and [the discovery roadmap](docs/command-discovery-plan.md) for planned work. License: [MIT](LICENSE).
