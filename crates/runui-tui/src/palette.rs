@@ -21,6 +21,7 @@ pub(crate) use projects::{ProjectOpened, RegistryChanged};
 pub(crate) enum Mode {
     Commands,
     Recent,
+    Shell,
 }
 
 pub(crate) struct Palette {
@@ -29,6 +30,7 @@ pub(crate) struct Palette {
     hits: Vec<Entry>,
     at: usize,
     mode: Mode,
+    pub(crate) shell: Option<crate::recall::Browser>,
     scope: Scope,
     cargo_global_aliases: bool,
     workspace_discovery: Option<(String, Arc<runui_project::Discovery>)>,
@@ -92,6 +94,7 @@ impl Palette {
             hits: Vec::new(),
             at: 0,
             mode: Mode::Commands,
+            shell: None,
             scope: Scope::Project,
             cargo_global_aliases: false,
             workspace_discovery: None,
@@ -114,6 +117,9 @@ impl Palette {
     }
 
     fn query(&mut self) {
+        if self.mode == Mode::Shell {
+            return;
+        }
         let selected = self.hits.get(self.at).map(|entry| entry.id.clone());
         match Query::parse(&self.input.value()) {
             Ok(mut query) => {
@@ -123,6 +129,7 @@ impl Palette {
                         query.kinds.clone()
                     }
                     Mode::Recent => vec![Kind::Recent],
+                    Mode::Shell => unreachable!(),
                 };
                 query.registry_id = self.project_filter.clone();
                 self.hits = self.snapshot.search(&query).into_iter().map(|hit| hit.entry.clone()).collect();
@@ -137,11 +144,20 @@ impl Palette {
         }
     }
     pub(crate) fn notify(&mut self, message: &str, bad: bool) {
+        if self.mode == Mode::Shell
+            && let Some(shell) = &mut self.shell
+        {
+            shell.notify(message, bad);
+            return;
+        }
         if bad {
             self.error = message.into();
         } else {
             self.note = message.into();
         }
+    }
+    pub(crate) fn refresh_shell(&mut self) -> Cmd {
+        if self.mode == Mode::Shell { self.shell.as_mut().and_then(|shell| shell.refresh()) } else { None }
     }
     fn selected(&self) -> Option<Entry> {
         self.hits.get(self.at).cloned()
@@ -152,6 +168,11 @@ impl Palette {
     }
 
     pub(crate) fn draw(&mut self, width: i32, height: i32) -> String {
+        if self.mode == Mode::Shell
+            && let Some(shell) = &mut self.shell
+        {
+            return shell.draw(width, height);
+        }
         if self.picker.is_some() {
             return self.draw_projects(width, height);
         }
@@ -669,9 +690,109 @@ fn build_registered(
 }
 
 impl App {
+    pub(crate) fn shell_history_action(&mut self, action: crate::recall::Action) -> Cmd {
+        use crate::recall::{Action, Purpose};
+        match action {
+            Action::None | Action::Selected(_) => None,
+            Action::Command(command) => command,
+            Action::Close => {
+                self.cfg.index.cancel_pending();
+                self.palette = None;
+                self.palette_epoch += 1;
+                None
+            }
+            Action::Mode(back) => {
+                let palette = self.palette.as_mut()?;
+                palette.mode = if back { Mode::Recent } else { Mode::Commands };
+                palette.query();
+                None
+            }
+            Action::Copy(command) => tea::set_clipboard(command),
+            Action::Prepared(prepared, purpose) => {
+                let label = format!(
+                    "{} · {}",
+                    prepared.entry.dialect.as_str(),
+                    safe(&prepared.command.lines().next().unwrap_or_default().chars().take(60).collect::<String>())
+                );
+                match purpose {
+                    Purpose::Replay => {
+                        let epoch = self.palette_epoch;
+                        if let Some(palette) = &mut self.palette {
+                            palette.launching = true;
+                            if let Some(shell) = &mut palette.shell {
+                                shell.busy = true;
+                                shell.notify("Starting the selected native-shell invocation…", false);
+                            }
+                        }
+                        let runner = self.cfg.runs.clone();
+                        tea::cmd_msg(move || {
+                            let (run, error) = runner.start_with_shell(
+                                &prepared.directory,
+                                &label,
+                                &prepared.command,
+                                &prepared.shell,
+                            );
+                            let warning = if !run.id.is_empty() {
+                                runner
+                                    .usage_store()
+                                    .and_then(|store| store.record(&run, None).err().map(|error| error.to_string()))
+                            } else {
+                                None
+                            };
+                            Launched {
+                                epoch,
+                                run,
+                                error: error.map(|error| error.to_string()),
+                                warning,
+                                fresh: None,
+                                discovery: None,
+                                scope: Scope::Project,
+                            }
+                        })
+                    }
+                    Purpose::Save => {
+                        let directory = runui_core::golang::filepath::rel(
+                            &runui_catalog::canonical(&self.cfg.dir),
+                            &prepared.directory,
+                        )
+                        .unwrap_or(prepared.directory.clone());
+                        let favorite = runui_favorites::Favorite {
+                            name: label,
+                            command: prepared.favorite_command(),
+                            source: String::new(),
+                            dir: if directory == "." { String::new() } else { directory },
+                            added: None,
+                        };
+                        let result = self.cfg.favorites.add(&self.cfg.dir, favorite);
+                        if let Some(shell) = self.palette.as_mut().and_then(|palette| palette.shell.as_mut()) {
+                            match result {
+                                Ok(()) => shell.notify("Saved the native-shell command as a shared favorite", false),
+                                Err(error) => shell.notify(&error.to_string(), true),
+                            }
+                        }
+                        self.load_favorites();
+                        None
+                    }
+                    Purpose::Terminal => {
+                        let command = prepared.favorite_command();
+                        tea::cmd_msg(move || {
+                            crate::HandoffMsg(
+                                crate::terminal::open(&prepared.directory, &command)
+                                    .err()
+                                    .map(|error| error.to_string()),
+                            )
+                        })
+                    }
+                }
+            }
+        }
+    }
+
     pub(crate) fn open_palette(&mut self) -> Cmd {
         self.palette_epoch += 1;
         let mut palette = Palette::new();
+        palette.shell =
+            Some(crate::recall::Browser::new(self.cfg.shell_history.clone(), &self.cfg.invocation_dir, false));
         let focus = palette.input.focus();
         self.palette = Some(palette);
         tea::batch(vec![focus, self.refresh_palette()])
@@ -679,6 +800,9 @@ impl App {
 
     pub(crate) fn refresh_palette(&mut self) -> Cmd {
         let palette = self.palette.as_mut()?;
+        if palette.mode == Mode::Shell {
+            return palette.shell.as_mut().and_then(|shell| shell.refresh());
+        }
         if palette.loading {
             palette.queued = true;
             return None;
@@ -786,6 +910,9 @@ impl App {
 
     pub(crate) fn palette_input(&mut self, message: &Msg) -> Cmd {
         let palette = self.palette.as_mut()?;
+        if palette.mode == Mode::Shell {
+            return palette.shell.as_mut().and_then(|shell| shell.paste(message));
+        }
         palette.error.clear();
         if let Some(picker) = &mut palette.picker {
             return picker.update(message);
@@ -796,6 +923,10 @@ impl App {
     }
 
     pub(crate) fn palette_key(&mut self, key: &KeyPressMsg) -> Cmd {
+        if self.palette.as_ref().is_some_and(|palette| palette.mode == Mode::Shell) {
+            let action = self.palette.as_mut()?.shell.as_mut()?.key(key);
+            return self.shell_history_action(action);
+        }
         if self.palette.as_ref().is_some_and(|palette| palette.picker.is_some()) {
             return self.project_picker_key(key);
         }
@@ -809,11 +940,19 @@ impl App {
                 None
             }
             "tab" | "shift+tab" => {
-                palette.mode = if palette.mode == Mode::Commands { Mode::Recent } else { Mode::Commands };
+                palette.mode = match (palette.mode, name.as_str()) {
+                    (Mode::Commands, "tab") | (Mode::Shell, "shift+tab") => Mode::Recent,
+                    (Mode::Recent, "tab") | (Mode::Commands, "shift+tab") => Mode::Shell,
+                    _ => Mode::Commands,
+                };
                 palette.at = 0;
                 palette.note.clear();
                 palette.query();
-                None
+                if palette.mode == Mode::Shell {
+                    palette.shell.as_mut().and_then(|shell| shell.refresh())
+                } else {
+                    None
+                }
             }
             "alt+s" if !palette.launching => {
                 palette.native_cancel.store(true, Ordering::Relaxed);
@@ -1138,13 +1277,16 @@ impl App {
         }
         if let Some(error) = message.error {
             if let Some(palette) = &mut self.palette {
+                if let Some(shell) = &mut palette.shell {
+                    shell.busy = false;
+                }
                 palette.launching = false;
                 palette.loading = false;
                 palette.queued = false;
                 if let Some(fresh) = message.fresh {
                     palette.set_snapshot(fresh);
                 }
-                palette.note = error;
+                palette.notify(&error, true);
             }
             return self.list_runs();
         }

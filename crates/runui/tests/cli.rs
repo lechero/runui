@@ -468,6 +468,35 @@ fn catalog_raw_favorite_arguments_remain_literal() {
 }
 
 #[test]
+fn private_recall_requires_explicit_dialect_preserves_text_and_never_enters_the_catalog() {
+    let s = sandbox();
+    let path = filepath::join(&[&s.root, "fish-history"]);
+    let bytes =
+        "- cmd: echo PRIVATE_HISTORY_FIXTURE\\n printf '\\\\n'\n  when: 1700000000\n  paths:\n    - /not/a/cwd\n";
+    fs::write(&path, bytes).unwrap();
+    let (code, out, error) = s.run(&["find", "--mode", "shell", "--shell", "fish", "--history-file", &path, "--json"]);
+    assert_eq!(code, EXIT_OK, "{error}");
+    let page: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(page["history"][0]["command"], "echo PRIVATE_HISTORY_FIXTURE\n printf '\\n'");
+    assert!(page["history"][0]["directory"].is_null());
+    assert!(page["history"][0]["exit_code"].is_null());
+    let (_, out, _) = s.run(&["commands", "--json", "PRIVATE_HISTORY_FIXTURE"]);
+    assert_eq!(serde_json::from_str::<serde_json::Value>(&out).unwrap()["commands"], serde_json::json!([]));
+    for args in [
+        vec!["find", "--mode", "shell", "--history-file", &path],
+        vec!["commands", "--mode", "shell", "--shell", "fish"],
+        vec!["find", "--shell", "fish"],
+        vec!["find", "--mode", "shell", "--shell", "fish", "--scope", "workspace"],
+        vec!["find", "--mode", "shell", "--shell", "fish", "--print0"],
+        vec!["find", "--mode", "shell", "--shell", "fish", "--pick", "--limit", "1"],
+    ] {
+        assert_eq!(s.run(&args).0, EXIT_USAGE, "{args:?}");
+    }
+    assert_eq!(fs::read_to_string(&path).unwrap(), bytes);
+    assert!(!std::path::Path::new(&s.root).join("state/runui/runs/catalog-v1.json").exists());
+}
+
+#[test]
 fn workspace_scope_finds_deep_siblings_and_keeps_their_launch_context() {
     let s = sandbox();
     fs::write(filepath::join(&[&s.dir, "package.json"]), r#"{"workspaces":["packages/**"]}"#).unwrap();

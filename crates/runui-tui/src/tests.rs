@@ -54,6 +54,86 @@ fn invalid_cargo_aliases_explain_the_failure_without_creating_a_run() {
 }
 
 #[test]
+fn shell_recall_is_session_opt_in_copy_only_and_never_acquires_a_project_scope() {
+    let world = new_world();
+    let path = std::path::Path::new(&world.home).join("fish-history");
+    let original =
+        "- cmd: echo PRIVATE_RECALL_FIXTURE\\n touch MUST_NOT_RUN\n  when: 1700000000\n  paths:\n    - /not/a/cwd\n";
+    fs::write(&path, original).unwrap();
+    let mut h = open(&world);
+    h.m.a.cfg.shell_history = HistorySettings {
+        sources: vec![runui_catalog::recall::Source {
+            dialect: runui_catalog::recall::Dialect::Fish,
+            path: Some(path.clone()),
+        }],
+        programs: Vec::new(),
+    };
+    h.keys(&["ctrl+p", "tab", "tab"]);
+    assert!(h.screen().contains("Shell history is off"));
+    assert!(!h.screen().contains("PRIVATE_RECALL_FIXTURE"));
+    h.keys(&["alt+h"]);
+    assert!(h.screen().contains("PRIVATE_RECALL_FIXTURE"));
+    assert!(h.screen().contains("cwd unknown"));
+    h.keys(&["enter", "alt+s"]);
+    assert!(h.screen().contains("unknown cwd"));
+    assert!(world.runs.list().unwrap().is_empty());
+    h.keys(&["alt+r"]);
+    assert!(h.screen().contains("original cwd unknown"));
+    h.keys(&["enter"]);
+    assert!(h.screen().contains("Matching shell unavailable"));
+    h.keys(&["esc", "alt+h"]);
+    assert!(!h.screen().contains("PRIVATE_RECALL_FIXTURE"));
+    assert!(h.screen().contains("history is off"));
+    h.keys(&["esc", "ctrl+p", "tab", "tab"]);
+    assert!(h.screen().contains("Shell history is off"));
+    assert_eq!(fs::read_to_string(path).unwrap(), original);
+    assert!(world.runs.list().unwrap().is_empty());
+    assert!(!std::path::Path::new(&world.dir).join("MUST_NOT_RUN").exists());
+}
+
+#[test]
+fn shell_recall_save_requires_confirmation_and_current_record_then_promotes_native_text() {
+    use runui_catalog::recall::{Dialect, Source};
+    use std::os::unix::fs::PermissionsExt;
+    let world = new_world();
+    let source = std::path::Path::new(&world.home).join("history");
+    let program = std::path::Path::new(&world.home).join("fish");
+    let original = "- cmd: begin\\n echo 'literal ☕'\\nend\n  when: 1700000000\n";
+    fs::write(&source, original).unwrap();
+    // Preparation checks the executable, but saving never executes it.
+    fs::write(&program, "#!/bin/sh\nexit 91\n").unwrap();
+    fs::set_permissions(&program, fs::Permissions::from_mode(0o755)).unwrap();
+    let mut h = open(&world);
+    h.m.a.cfg.shell_history = HistorySettings {
+        sources: vec![Source { dialect: Dialect::Fish, path: Some(source.clone()) }],
+        programs: vec![(Dialect::Fish, program.to_string_lossy().into_owned())],
+    };
+    h.keys(&["ctrl+p", "tab", "tab", "alt+h", "alt+m"]);
+    assert!(h.screen().contains("Saving deliberately shares"));
+    assert!(world.favs_now().for_dir(&world.dir).is_empty());
+    fs::write(&source, "- cmd: replacement\n  when: 1\n").unwrap();
+    h.keys(&["enter"]);
+    assert!(h.screen().contains("no longer available"));
+    assert!(world.favs_now().for_dir(&world.dir).is_empty());
+    fs::write(&source, original).unwrap();
+    h.keys(&["enter"]);
+    assert!(h.screen().contains("Saved the native-shell command"));
+    let favorites = world.favs_now().for_dir(&world.dir);
+    assert_eq!(favorites.len(), 1);
+    assert_eq!(
+        favorites[0].command,
+        format!(
+            "{} -c {}",
+            runui_catalog::quote_arg(&program.to_string_lossy()),
+            runui_catalog::quote_arg("begin\n echo 'literal ☕'\nend")
+        )
+    );
+    assert!(favorites[0].dir.is_empty());
+    assert!(world.runs.list().unwrap().is_empty());
+    assert_eq!(fs::read_to_string(source).unwrap(), original);
+}
+
+#[test]
 fn supervise_helper() {
     if std::env::var(SUPERVISE_ENV).as_deref() != Ok("1") {
         return;

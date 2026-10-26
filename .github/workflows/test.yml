@@ -45,6 +45,16 @@ jobs:
         env:
           RUNUI_BIN: ${{ github.workspace }}/target/debug/runui
         run: python3 -B scripts/verify-environment.py
+      - name: Native shell test tools (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y fish zsh tmux
+      - name: Native shell test tools (macOS)
+        if: runner.os == 'macOS'
+        run: brew install fish bash tmux
+      - name: Disposable private recall and shell insertion contracts
+        env:
+          RUNUI_BIN: ${{ github.workspace }}/target/debug/runui
+        run: python3 -B scripts/verify-recall.py
 
   homebrew:
     name: Homebrew formula

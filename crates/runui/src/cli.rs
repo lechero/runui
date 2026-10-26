@@ -22,6 +22,7 @@ mod projects;
 pub(crate) const EXIT_OK: i32 = 0;
 pub(crate) const EXIT_FAILURE: i32 = 1;
 pub(crate) const EXIT_USAGE: i32 = 2;
+pub(crate) const EXIT_CANCELLED: i32 = 130;
 
 const USAGE: &str = "runui keeps a folder's commands at hand and runs them: the project's own
 (a Taskfile's tasks, package.json's scripts, a Makefile's targets, a docker
@@ -41,6 +42,9 @@ Usage:
   runui mcp [-C DIR]    serve project commands and runs to an MCP client over stdio
   runui commands [-C DIR] [--query TEXT] [--json]  search the shared catalog
   runui find [-C DIR] [--mode commands|recent|all] [--json] [QUERY]
+  runui find --mode shell --shell fish|zsh|bash [--history-file PATH] [--json] [QUERY]
+  --pick selects private shell text for editing; --print0 emits exact NUL-delimited text.
+  The picker draws on stderr, reserves stdout for its result, and cancels with exit 130.
   runui inspect [-C DIR] [--json] [--native] ID  inspect a command and its fingerprint
   --native explicitly checks Composer versions or offline locked Cargo metadata.
   Supported mise wrappers resolve installed tools in safe mode; full launch
@@ -72,6 +76,7 @@ enum Failure {
     Help,
     Usage(String),
     Err(anyhow::Error),
+    Cancelled,
 }
 
 impl From<anyhow::Error> for Failure {
@@ -95,6 +100,7 @@ pub(crate) fn run(canceled: &Arc<AtomicBool>, args: &[String], stdout: &mut dyn 
             let _ = writeln!(stderr, "runui: {e}");
             EXIT_FAILURE
         }
+        Err(Failure::Cancelled) => EXIT_CANCELLED,
     }
 }
 

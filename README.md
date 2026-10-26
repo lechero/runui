@@ -70,7 +70,11 @@ Use `tab` / `shift+tab` between panels and `[` / `]` between a panel's tabs. Pre
 
 Press **`ctrl+p`** to search all sources and favorites together. Try `test`, `source:npm test`, or `dir:apps/web`. The preview shows the exact command, working directory, source location, and tool availability. `/` still filters the current panel tab.
 
-In the palette, `alt+s` switches **Project / Workspace / Registered**, and `tab` switches to **Recent invocations**, which retains exact commands after their output is pruned. `enter` runs the selection or focuses its existing live run; `alt+r` starts another. `alt+u` selects a recent invocation's current definition, keeping repeat and updated defaults separate. `esc` restores your panel filter and selection. Use `ctrl+v` for scrollable details, `f2` for discovery diagnostics, `alt+m` to star, `ctrl+y` to copy, `ctrl+o` to open the source, or `ctrl+t` to open a terminal. Terminal actions use tmux or a configured `RUNUI_TERMINAL` launcher. [Catalog and CLI reference](docs/command-catalog.md).
+In the palette, `alt+s` switches **Project / Workspace / Registered**, and `tab` cycles **Commands / Recent / Shell history**. Recent retains exact runui invocations after their output is pruned. In Commands/Recent, `enter` runs the selection or focuses its existing live run; `alt+r` starts another. `alt+u` selects a recent invocation's current definition, keeping repeat and updated defaults separate. `esc` restores your panel filter and selection. Use `ctrl+v` for scrollable details, `f2` for discovery diagnostics, `alt+m` to star, `ctrl+y` to copy, `ctrl+o` to open the source, or `ctrl+t` to open a terminal. Terminal actions use tmux or a configured `RUNUI_TERMINAL` launcher. [Catalog and CLI reference](docs/command-catalog.md).
+
+**Shell history starts off.** Choose its source with `alt+b`, then `alt+h` enables it for this session. Fish, Zsh and timestamp-delimited Bash records retain their original text and dialect; cwd and outcome stay unknown. `enter` copies for editing. Replay (`alt+r`), save (`alt+m`) and terminal (`ctrl+t`) require an explicit cwd confirmation. The matching shell runs the original text. Private records stay outside catalog search and MCP until you deliberately save or replay one. [Read-only formats, limits and shell insertion](docs/shell-recall.md).
+
+![Real private shell recall: opt in, confirm cwd, and replay under supervision](docs/assets/shell-recall-tour.gif)
 
 Press **`alt+p`** in the palette to choose registered projects. `enter` searches one checkout, `ctrl+o` opens it in the main panels, `alt+a` registers a directory, and `alt+d` forgets a registration. Duplicate names are qualified by checkout path and branch. Registrations are explicit; opening a folder does not add it. Forgetting keeps its files, favorites, runs and output.
 
@@ -93,7 +97,7 @@ Cargo discovery reads manifests and target layouts without running Cargo. Packag
 
 Search `source:cargo kind:alias` for effective Cargo aliases in the invocation directory. The preview shows native expansion and configuration origins. `alt+g` includes global-only aliases; CLI uses `--cargo-global-aliases`, and MCP uses `cargo_global_aliases: true`. Project aliases retain Cargo's global overrides and typed merge rules. Running an alias delegates expansion and extra arguments to Cargo. [Alias context and limits](docs/command-catalog.md#cargo-aliases).
 
-Press `m` in a panel to star a command, or `a` to save your own named shell command. Runui notices edits to files it reads; `r` rescans, including newly added nested files. Shell recall and input presets remain in the [integration plan](docs/command-discovery-plan.md).
+Press `m` in a panel to star a command, or `a` to save your own named shell command. Runui notices edits to files it reads; `r` rescans, including newly added nested files. Structured input presets remain in the [integration plan](docs/command-discovery-plan.md).
 
 Declared pnpm/npm/Yarn and Cargo workspace packages can be deeper than three levels. Workspace scope searches the enclosing declaration while each command keeps its own cwd. Exclusions control package membership; `.runuiignore` uses Git-ignore syntax to exclude discovery paths, including declared members. Repository `.gitignore` files apply to incidental folders; a declared member overrides them with a notice. Nested repositories, symlinks, dependencies and generated folders stay traversal boundaries.
 
@@ -191,7 +195,8 @@ If your shell and tmux disagree, use the absolute path from `command -v runui` i
 | `[` / `]` | Switch the current panel's tabs. |
 | `j` / `k`, `g` / `G` | Move through rows. |
 | `/`, `esc` | Filter the current tab; clear the filter. |
-| `ctrl+p` | Open the palette; `tab` switches Commands / Recent, `alt+s` switches scope, `alt+p` opens projects. |
+| `ctrl+p` | Open the palette; `tab` cycles Commands / Recent / Shell history, `alt+s` switches command scope, `alt+p` opens projects. |
+| `alt+h`, `alt+b` in Shell history | Enable/disable private recall for this session, or choose its shell source. Enter copies; replay/save requires a chosen cwd. |
 | `ctrl+v`, `f2` in the palette | Scrollable command details or discovery diagnostics. |
 | `alt+i` in the palette | Explicit Composer/PHP version or Cargo metadata checks, with limits and no unread run. |
 | `alt+g` in the palette | Include global-only Cargo aliases for each selected invocation context. |
